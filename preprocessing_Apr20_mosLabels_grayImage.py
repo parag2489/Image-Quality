@@ -56,7 +56,7 @@ def rmse_patches(patch1,patch2,patchSize):
 mySeed = sys.argv[1]
 np.random.seed(mySeed)
 
-allImgsPath = "/media/ASUAD\pchandak/Seagate Expansion Drive/TID2013"
+allImgsPath = "/media/ASUAD\pchandak/Seagate Expansion Drive/TID2013/"
 # imgWritePath = "/media/vijetha/Seagate Expansion Drive/ImageQualityEvaluationDatabases/tid2013_original/allImgs_ref_distorted_preprocessed_val/"
 # hdfSavePath = "/media/ASUAD\pchandak/Seagate Expansion Drive1/imageQuality_HDF5Files_March21_2016/"
 imgRows = 384

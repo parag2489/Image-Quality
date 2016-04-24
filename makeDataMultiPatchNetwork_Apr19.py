@@ -5,7 +5,7 @@ from skimage import measure
 import glob
 import cv2
 import h5py
-import os
+import os, sys
 import gc
 import pdb
 import glob
@@ -58,16 +58,17 @@ def preprocess_image(img, h):
     # cv2.waitKey(0)
     return structImg
 
-trainImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_train/"
-valImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_val/"
-testImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_test/"
-# imgWritePath = "/media/vijetha/Seagate Expansion Drive/ImageQualityEvaluationDatabases/tid2013_original/allImgs_ref_distorted_preprocessed_val/"
+mySeed = sys.argv[1]
+np.random.seed(mySeed)
+
+allImgsPath = "/media/ASUAD\pchandak/Seagate Expansion Drive/TID2013/"
 hdfSavePath = "/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_HDF5Files_Apr20/"
 imgRows = 384
 imgCols = 512
 imgChannels = 3
 patchSize = 32
-skip_distortions = np.array([16, 17, 18])
+skip_distortions = np.array([2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])
+# skip_distortions = np.array([16, 17, 18])
 learningRate = 0.005
 regularizer = 0.0005
 initialization = "he_normal"
@@ -76,20 +77,28 @@ doWeightLoadSaveTest = False
 patchOverlap = 0.5
 denseLayerSize = 600
 
-mode = "test"
+allImgs = glob.glob(allImgsPath+"*.bmp")
+splitF = [f.split("/")[-1] for f in allImgs]
+allRefImgs = [f for f in splitF if "_" not in f]
+
+# generate train, test and val indices
+
+ind = np.random.permutation(len(allRefImgs))
+
+mode = sys.argv[2]
 
 
 h = matlab_style_gauss2D(shape=(7,7),sigma=7./6.)
 
 if mode == "train":
-    fileList = glob.glob(trainImgsPath+"*.bmp")
+    refImgs = allRefImgs[ind[0:15]]
 elif mode == "val":
-    fileList = glob.glob(valImgsPath+"*.bmp")
+    refImgs = allRefImgs[ind[15:20]]
 else:
-    fileList = glob.glob(testImgsPath + "*.bmp")
+    refImgs = allRefImgs[ind[20:25]]
 
 splitF = [f.split("/")[-1] for f in fileList]
-refImgs = [f for f in splitF if "_" not in f]
+
 nNoiseTypes = 24
 noiseLevels = 5
 
