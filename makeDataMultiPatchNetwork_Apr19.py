@@ -129,44 +129,25 @@ for imgName in refImgs:
 
 # first make the small network which creates the 512-D representation
 
-model = Sequential()
+model = Graph()
+model.add_input(name='input', input_shape=(channels, patchHeight, patchWidth))
+model.add_node(Convolution2D(50, 7, 7, init=initialization, activation='linear', border_mode='valid',
+                                 input_shape=(1, 32, 32)), name='conv1', input='input')
+model.add_node(MaxPooling2D(pool_size=(26, 26)), name='max_pool', input='conv1')
+model.add_node(Flatten(), name='flat_max', input='max_pool')
+model.add_node(layer=Lambda(min_pool_inp, output_shape=(50, 26, 26)), name='invert_val', input='conv1')
+model.add_node(MaxPooling2D(pool_size=(26, 26)), name='min_pool', input='invert_val')
+model.add_node(Flatten(), name='flat_min', input='min_pool')
 
-model.add(Activation('linear',input_shape=(imgChannels,patchSize,patchSize)))  # 32
-model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 30
-model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 28
-model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 26
-model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 25
+model.add_node(Dense(800, init=initialization, activation='relu'), name='dense1',
+                   inputs=['flat_max', 'flat_min'], merge_mode='concat')
 
-# ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 23
-model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 21
-model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 19
-model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 18
-
-# ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 16
-model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 14
-model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 12
-model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 11
-
-# ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 9
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 7
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 5
-model.add(MaxPooling2D(pool_size=(2,2)))  # 2
-
-# ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-model.add(Flatten())
-# model.add(Dropout(0.25))
-model.add(Dense(600, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
-model.add(Dropout(0.5))
-model.add(Dense(600, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
-model.add(Dropout(0.5))
-model.add(Dense(nb_output, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "linear"))
+model.add_node(Dense(800, init=initialization, activation='relu'), name='dense2', input='dense1')
+model.add_node(Dropout(0.5), name='dropout2', input='dense2')
+model.add_node(Dense(1, activation='linear'), name='output', input='dropout2', create_output=True)
+# print model.get_config()
+print model.count_params()
+sgd = SGD(lr=learningRate, momentum=0.9, decay=0.0, Nesterov=True)
 print("Built the model")
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------ #
@@ -180,13 +161,13 @@ if doWeightLoadSaveTest:
 # print("Weights at Epoch 0 loaded")
 # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 
-sgd = SGD(lr=learningRate, decay=1e-6, momentum=0.9, nesterov=True)
-# adam = Adam(lr=learningRate, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
-model.load_weights('/media/AccessParag/Code/weights_MOSRegress/bestWeights_regressMOS_lowKernels_bestCorr_copy_Apr23.h5')
+model.load_weights('/media/AccessParag/Code/weights_MOSRegress/bestWeights_referenceCNN_bestCorr.h5')
 model.compile(loss='mae', optimizer=sgd)
 print("Compilation Finished")
 
-get_layer_output = K.function([model.layers[0].input], [model.layers[-2].get_output(train=False)])
+# get_layer_output = K.function([model.layers[0].input], [model.layers[-2].get_output(train=False)])
+get_layer_output = K.function([model.inputs[i].input for i in model.input_order],
+                                   [model.nodes['dense2'].get_output(train=False)])
 
 # Making the data for the multi-patch network:
 
@@ -211,7 +192,7 @@ for i in range(len(allImgNames)):
         for patch_row in range(0,imgRows-patchSize+1,int(patchSize*patchOverlap)):  # 1/2 overlap
             patch = np.empty((1,3,patchSize,patchSize))
             patch[0,...] = np.transpose(img[patch_row:patch_row+patchSize,patch_col:patch_col+patchSize,:],(2,0,1))
-            hyperImages[i,:,rowCount,colCount] = get_layer_output([patch])[0]
+            hyperImages[i,:,rowCount,colCount] = get_layer_output([input_data_dict[i] for i in model.input_order])[0]  # get_layer_output([patch])[0]
             rowCount += 1
         colCount += 1
     labels[i] = allImgScores[i]

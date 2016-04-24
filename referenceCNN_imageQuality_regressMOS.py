@@ -156,26 +156,26 @@ cb = myCallback()
 history = LossHistory()
 terminateTraining = EarlyStopping(monitor='val_loss', patience=40, verbose=1, mode='auto')
 
-graph_cnn = Graph()
-graph_cnn.add_input(name='input', input_shape=(channels, patchHeight, patchWidth))
-graph_cnn.add_node(Convolution2D(50, 7, 7, init=initialization, activation='linear', border_mode='valid',
+model = Graph()
+model.add_input(name='input', input_shape=(channels, patchHeight, patchWidth))
+model.add_node(Convolution2D(50, 7, 7, init=initialization, activation='linear', border_mode='valid',
                                  input_shape=(1, 32, 32)), name='conv1', input='input')
-graph_cnn.add_node(MaxPooling2D(pool_size=(26, 26)), name='max_pool', input='conv1')
-graph_cnn.add_node(Flatten(), name='flat_max', input='max_pool')
-graph_cnn.add_node(layer=Lambda(min_pool_inp, output_shape=(50, 26, 26)), name='invert_val', input='conv1')
-graph_cnn.add_node(MaxPooling2D(pool_size=(26, 26)), name='min_pool', input='invert_val')
-graph_cnn.add_node(Flatten(), name='flat_min', input='min_pool')
+model.add_node(MaxPooling2D(pool_size=(26, 26)), name='max_pool', input='conv1')
+model.add_node(Flatten(), name='flat_max', input='max_pool')
+model.add_node(layer=Lambda(min_pool_inp, output_shape=(50, 26, 26)), name='invert_val', input='conv1')
+model.add_node(MaxPooling2D(pool_size=(26, 26)), name='min_pool', input='invert_val')
+model.add_node(Flatten(), name='flat_min', input='min_pool')
 
-graph_cnn.add_node(Dense(800, init=initialization, activation='relu'), name='dense1',
+model.add_node(Dense(800, init=initialization, activation='relu'), name='dense1',
                    inputs=['flat_max', 'flat_min'], merge_mode='concat')
 
-graph_cnn.add_node(Dense(800, init=initialization, activation='relu'), name='dense2', input='dense1')
-graph_cnn.add_node(Dropout(0.5), name='dropout2', input='dense2')
-graph_cnn.add_node(Dense(1, activation='linear'), name='output', input='dropout2', create_output=True)
-# print graph_cnn.get_config()
-print graph_cnn.count_params()
+model.add_node(Dense(800, init=initialization, activation='relu'), name='dense2', input='dense1')
+model.add_node(Dropout(0.5), name='dropout2', input='dense2')
+model.add_node(Dense(1, activation='linear'), name='output', input='dropout2', create_output=True)
+# print model.get_config()
+print model.count_params()
 sgd = SGD(lr=learningRate, momentum=0.9, decay=0.0, Nesterov=True)
-graph_cnn.compile(loss={'output':'mae'},optimizer=sgd)
+model.compile(loss={'output':'mae'},optimizer=sgd)
 
 print 'Finsihed compiling the model. No error in model construction'
 #
@@ -198,7 +198,7 @@ hdfFileTest = h5py.File(TestFilesPath + "QualityRegressMOS_data_March31.h5","r")
 testData = hdfFileTest["data"][:]
 testLabels = hdfFileTest["labels"][:]
 
-graph_cnn.fit({'input':x_train, 'output':y_train}, batch_size=batchSize, nb_epoch=Numepochs, verbose=0, validation_data={'input':x_valid, 'output': y_valid}
+model.fit({'input':x_train, 'output':y_train}, batch_size=batchSize, nb_epoch=Numepochs, verbose=0, validation_data={'input':x_valid, 'output': y_valid}
                ,shuffle=True,callbacks=[checkpointer,cb,terminateTraining])
 
 pdb.set_trace()
