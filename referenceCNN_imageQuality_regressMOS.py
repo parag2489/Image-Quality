@@ -1,12 +1,13 @@
 import pdb
 from keras.models import Sequential, Graph
-from keras.layers.core import Dense, Dropout, Activation, Flatten, Reshape
+from keras.layers.core import Dense, Dropout, Activation, Flatten, Reshape, Lambda
 from keras.layers.convolutional import Convolution1D, Convolution2D, MaxPooling2D
 # from keras.layers.normalization import BatchNormalization
 # from keras.layers.advanced_activations import LeakyReLU
 from keras.optimizers import SGD, RMSprop, Adam
 from keras.layers.core import Merge
 from keras.regularizers import l2, activity_l2
+import sys
 import numpy as np
 import scipy
 import theano
@@ -22,7 +23,7 @@ from keras.callbacks import ModelCheckpoint, EarlyStopping
 from decimal import Decimal
 
 mySeed = sys.argv[1]
-np.random.seed(mySeed)
+np.random.seed(int(float(mySeed)))
 
 doWeightLoadSaveTest = True
 patchHeight = 32
@@ -39,9 +40,9 @@ batchSize 	            = 50
 validateAfterEpochs 	= 1
 nb_output = 1
 
-TrainFilesPath 	= '/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_HDF5Files_Apr20/hdf5Files_train/'
-ValFilesPath 	= '/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_HDF5Files_Apr20/hdf5Files_val/'
-TestFilesPath = '/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_HDF5Files_Apr20/hdf5Files_test/'
+TrainFilesPath 	= '/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_mulitPatchBackup_Apr23/imageQuality_HDF5Files_Apr20/hdf5Files_train/'
+ValFilesPath 	= '/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_mulitPatchBackup_Apr23/imageQuality_HDF5Files_Apr20/hdf5Files_val/'
+TestFilesPath = '/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_mulitPatchBackup_Apr23/imageQuality_HDF5Files_Apr20/hdf5Files_test/'
 # logger 			= '/media/AccessParag/Code/DNN_imageQuality_regression_Apr20_corrlnLoss_lowKernels.txt'
 weightSavePath 	= '/media/AccessParag/Code/weights_MOSRegress/'
 
@@ -71,9 +72,8 @@ class myCallback(callbacks.Callback):
             self.metric = []
     def on_epoch_end(self, epoch, logs={}):
         model.save_weights(weightSavePath + "bestWeights_referenceCNN_latestModel.h5",overwrite=True)
-
-        predictedScoresVal = np.ravel(model.predict(valData,batch_size=batchSize))
-        predictedScoresTest = np.ravel(model.predict(testData,batch_size=batchSize))
+        predictedScoresVal = np.ravel((model.predict({'input': valData},batch_size=batchSize)).get('output'))
+        predictedScoresTest = np.ravel((model.predict({'input': testData},batch_size=batchSize)).get('output'))
         sroccVal = scipy.stats.spearmanr(predictedScoresVal, valLabels)
         plccVal =  scipy.stats.pearsonr(predictedScoresVal, valLabels)
         sroccTest = scipy.stats.spearmanr(predictedScoresTest, testLabels)
@@ -104,6 +104,9 @@ class myCallback(callbacks.Callback):
         #         learningRate = model.optimizer.lr.get_value()
         #         print("")
         #         print("The current learning rate is: " + str(learningRate))
+
+def min_pool_inp(x):
+    return -x
 
 def linear_correlation_loss(y_true, y_pred):
     mean_y_true = K.mean(y_true)
@@ -146,14 +149,12 @@ print("\n")
 print("**Files Path**")
 print("Trainig Files Path       : "+TrainFilesPath)
 print("Valid Files Path         : "+ValFilesPath)
-print("Logger File Path         : "+logger)
 print("Weights Save Path        : "+weightSavePath)
 print("\n")
 
 print("---------------------------------------------------------------------------------")
 
 cb = myCallback()
-history = LossHistory()
 terminateTraining = EarlyStopping(monitor='val_loss', patience=40, verbose=1, mode='auto')
 
 model = Graph()
@@ -173,8 +174,8 @@ model.add_node(Dense(800, init=initialization, activation='relu'), name='dense2'
 model.add_node(Dropout(0.5), name='dropout2', input='dense2')
 model.add_node(Dense(1, activation='linear'), name='output', input='dropout2', create_output=True)
 # print model.get_config()
-print model.count_params()
-sgd = SGD(lr=learningRate, momentum=0.9, decay=0.0, Nesterov=True)
+print("Model params = " + str(model.count_params()))
+sgd = SGD(lr=learningRate, momentum=0.9, decay=1e-6, Nesterov=True)
 model.compile(loss={'output':'mae'},optimizer=sgd)
 
 print 'Finsihed compiling the model. No error in model construction'
@@ -198,7 +199,7 @@ hdfFileTest = h5py.File(TestFilesPath + "QualityRegressMOS_data_March31.h5","r")
 testData = hdfFileTest["data"][:]
 testLabels = hdfFileTest["labels"][:]
 
-model.fit({'input':x_train, 'output':y_train}, batch_size=batchSize, nb_epoch=Numepochs, verbose=0, validation_data={'input':x_valid, 'output': y_valid}
+model.fit({'input':trainData, 'output':trainLabels}, batch_size=batchSize, nb_epoch=Numepochs, verbose=0, validation_data={'input':valData, 'output': valLabels}
                ,shuffle=True,callbacks=[checkpointer,cb,terminateTraining])
 
-pdb.set_trace()
+# pdb.set_trace()

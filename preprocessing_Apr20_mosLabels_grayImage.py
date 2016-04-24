@@ -41,7 +41,7 @@ def preprocess_channel(channel, h):
 def preprocess_image(img, h):
     img = np.float32(img)
     img = img/255.
-    img = cv2.cvtColor(img,code=cv2.COLOR_BGR2Gray)
+    img = cv2.cvtColor(img,code=cv2.COLOR_BGR2GRAY)
     # structImg = np.empty_like(img)
     # structImg[:,:,0] = preprocess_channel(img[:,:,0],h)
     # structImg[:,:,1] = preprocess_channel(img[:,:,1],h)
@@ -58,11 +58,11 @@ def rmse_patches(patch1,patch2,patchSize):
     return rmse_value
 
 mySeed = sys.argv[1]
-np.random.seed(mySeed)
+np.random.seed(int(float(mySeed)))
 
 allImgsPath = "/media/ASUAD\pchandak/Seagate Expansion Drive/TID2013/"
 # imgWritePath = "/media/vijetha/Seagate Expansion Drive/ImageQualityEvaluationDatabases/tid2013_original/allImgs_ref_distorted_preprocessed_val/"
-# hdfSavePath = "/media/ASUAD\pchandak/Seagate Expansion Drive1/imageQuality_HDF5Files_March21_2016/"
+hdfSavePath = "/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_mulitPatchBackup_Apr23/imageQuality_HDF5Files_Apr20/"
 imgRows = 384
 imgCols = 512
 imgChannels = 3
@@ -75,25 +75,26 @@ allImgs = glob.glob(allImgsPath+"*.bmp")
 splitF = [f.split("/")[-1] for f in allImgs]
 allRefImgs = [f for f in splitF if "_" not in f]
 
-# generate train, test and val indices
-
-ind = np.random.permutation(len(allRefImgs))
-
 mode = sys.argv[2]
 
+# generate train, test and val indices
+splitIndex = sys.argv[3]
+allRandomIndices = sio.loadmat('./randomIndices.mat')
+allRandomIndices = allRandomIndices['ind']
+ind = allRandomIndices[int(splitIndex),:]
 
 h = matlab_style_gauss2D(shape=(7,7),sigma=7./6.)
 
 if mode == "train":
-    refImgs = allRefImgs[ind[0:15]]
+    refImgs = [allRefImgs[i] for i in ind[0:15]]
 elif mode == "val":
-    refImgs = allRefImgs[ind[15:20]]
+    refImgs = [allRefImgs[i] for i in ind[15:20]]
 else:
-    refImgs = allRefImgs[ind[20:25]]
+    refImgs = [allRefImgs[i] for i in ind[20:25]]
 
 nNoiseTypes = 24
 noiseLevels = 5
-rmse_th = 0.12
+rmse_th = 0.052
 row = 0
 col = 0
 
@@ -103,7 +104,7 @@ for i in range(len(mos_names)):
     mos_names[i] = mos_names[i].lower()
 mos_scores = mos_scores.values[:,0]
 
-pdb.set_trace()
+# pdb.set_trace()
 distImgs = [ [None]*((nNoiseTypes-len(skip_distortions))*noiseLevels) for i in range(len(refImgs))]
 distLabels = np.empty(shape=(len(refImgs),(nNoiseTypes-len(skip_distortions))*noiseLevels, 2),dtype=int)
 
@@ -155,11 +156,11 @@ skipped = np.zeros(shape=(noiseLevels,(nNoiseTypes-len(skip_distortions))*noiseL
 #             finalRefPatchCount = finalRefPatchCount + 1
 # pdb.set_trace()
 for i in range(0, len(refImgs)):
-    print "Distorted Image " + str(i) + " under processing"
-    print "Skipped patches - category-wise - : " + str(skipped)
-    print ""
-    for k in range(len(finalDistPatches)):
-        print "k = " + str(k) +", " + str(len(finalDistPatches[k]))
+    # print "Distorted Image " + str(i) + " under processing"
+    # print "Skipped patches - category-wise - : " + str(skipped)
+    # print ""
+    # for k in range(len(finalDistPatches)):
+        # print "k = " + str(k) +", " + str(len(finalDistPatches[k]))
     # pdb.set_trace()
     refImgName = refImgs[i]
     refImg = cv2.imread(allImgsPath + refImgName)
@@ -178,8 +179,9 @@ for i in range(0, len(refImgs)):
                 distPatch = distImg[patch_row:patch_row+patchSize,patch_col:patch_col+patchSize]
                 rmse_p = rmse_patches(refPatch,distPatch,patchSize)
                 if rmse_p > rmse_th:
-                    (finalDistPatches[imgLabel[0]-1][imgLabel[1]-1]).append(distPatch)
-                    (finalDistPatches[imgLabel[0]-1][imgLabel[1]-1]).append(distPatch)
+                    temp = distPatch[...,None]
+                    (finalDistPatches[imgLabel[0]-1][imgLabel[1]-1]).append(np.transpose(temp,(2,0,1)))
+                    (finalDistPatches[imgLabel[0]-1][imgLabel[1]-1]).append(np.transpose(np.fliplr(temp),(2,0,1)))
                     finalDistPatchCount[imgLabel[0]-1][imgLabel[1]-1] += 1
                     finalDistPatchCount[imgLabel[0]-1][imgLabel[1]-1] += 1
                     rmse_values[imgLabel[0]-1][imgLabel[1]-1].append(rmse_p)
@@ -200,19 +202,19 @@ for i in range(0, len(refImgs)):
             #             print len(finalDistPatches[k][j]),
             # if imgLabel[1] == 75:
             #     pdb.set_trace()
-    for k in range(len(skipped)):
-        print "skipped " + str(k)
-        for j in range(k,len(skipped[0]),5):
-            print "j = " + str(np.ceil(j/5.)) + ", " + str(skipped[k][j])
-    print ""
-    print "----------------------------------------"
-    print "finalDistPatches:"
-    print "----------------------------------------"
-    print ""
-    for k in range(0,len(finalDistPatches)):
-        print ""
-        for j in range(k,len(finalDistPatches[0]), 5):
-            print len(finalDistPatches[k][j]),
+    # for k in range(len(skipped)):
+    #     print "skipped " + str(k)
+    #     for j in range(k,len(skipped[0]),5):
+    #         print "j = " + str(np.ceil(j/5.)) + ", " + str(skipped[k][j])
+    # print ""
+    # print "----------------------------------------"
+    # print "finalDistPatches:"
+    # print "----------------------------------------"
+    # print ""
+    # for k in range(0,len(finalDistPatches)):
+    #     print ""
+    #     for j in range(k,len(finalDistPatches[0]), 5):
+    #         print len(finalDistPatches[k][j]),
 
     for n in range(len(finalDistPatches)):
         for k in range(len(finalDistPatches[0])):
@@ -226,27 +228,27 @@ for i in range(0, len(refImgs)):
                 rmse_values[n][k] = []
                 patchMos[n][k] = []
     # pdb.set_trace()
-    print ""
-    print "----------------------------------------"
-    print "filteredPatches:"
-    print "----------------------------------------"
-    print ""
-    for k in range(0,len(filteredPatches)):
-        print ""
-        for j in range(k,len(filteredPatches[0]), 5):
-            print len(filteredPatches[k][j]),
-    # pdb.set_trace()
-    print ""
-    for j in range(k,len(filteredPatches[0]), 5):
-        print len(filteredPatches[k][j]),
+    # print ""
+    # print "----------------------------------------"
+    # print "filteredPatches:"
+    # print "----------------------------------------"
+    # print ""
+    # for k in range(0,len(filteredPatches)):
+    #     print ""
+    #     for j in range(k,len(filteredPatches[0]), 5):
+    #         print len(filteredPatches[k][j]),
+    # # pdb.set_trace()
+    # print ""
+    # for j in range(k,len(filteredPatches[0]), 5):
+    #     print len(filteredPatches[k][j]),
 
 minOfAllCat = np.inf
 for n in range(len(filteredPatches)):
     for k in range(len(filteredPatches[0])):
-        print "n = " + str(n) + ", k = " + str(k) +", " + str(len(filteredPatches[n][k]))
+        # print "n = " + str(n) + ", k = " + str(k) +", " + str(len(filteredPatches[n][k]))
         if minOfAllCat > len(filteredPatches[n][k]) and len(filteredPatches[n][k]) != 0:
             minOfAllCat = len(filteredPatches[n][k])
-print "Minimum of all categories is: " + str(minOfAllCat)
+# print "Minimum of all categories is: " + str(minOfAllCat)
 # pdb.set_trace()
 
 allDistortPatches = np.empty((noiseLevels,(nNoiseTypes-len(skip_distortions))),dtype=object)
@@ -265,9 +267,9 @@ for n in range(len(filteredPatches)):
     # pdb.set_trace()
     for k in range(len(filteredPatches[0])):
         if len(filteredPatches[n][k]) != 0:
-            print "n = " + str(n)
-            print "k = " + str(k)
-            print "count = " + str(count)
+            # print "n = " + str(n)
+            # print "k = " + str(k)
+            # print "count = " + str(count)
             randIndices = np.random.permutation(len(filteredPatches[n][k]))
             for m in range(minOfAllCat):
                 allDistortPatches[n][count].append(filteredPatches[n][k][randIndices[m]])
@@ -280,15 +282,10 @@ allRefPatches = np.empty((len(refImgs),),dtype=object)
 for i in range(len(refImgs)):
     allRefPatches[i] = []
 
-pdb.set_trace()
+# pdb.set_trace()
 for i in range(len(refImgs)):
     refImgName = refImgs[i]
-    if mode == "train":
-        refImg = cv2.imread(trainImgsPath + refImgName)
-    elif mode == "val":
-        refImg = cv2.imread(valImgsPath + refImgName)
-    else:
-        refImg = cv2.imread(testImgsPath + refImgName)
+    refImg = cv2.imread(allImgsPath + refImgName)
 
     refImg = preprocess_image(refImg,h)
 
@@ -298,11 +295,12 @@ for i in range(len(refImgs)):
                 allRefPatches[i].append(refPatch)
                 allRefPatches[i].append(np.fliplr(refPatch))
 
-pdb.set_trace()
-finalDistortPatches = np.empty(shape=(((nNoiseTypes-len(skip_distortions))*noiseLevels)*minOfAllCat + minOfAllCat, imgChannels, patchSize, patchSize),dtype=float)
+
+finalDistortPatches = np.empty(shape=(((nNoiseTypes-len(skip_distortions))*noiseLevels)*minOfAllCat + minOfAllCat, 1, patchSize, patchSize),dtype=float)
 finalDistortLabels = np.empty(shape=(((nNoiseTypes-len(skip_distortions))*noiseLevels)*minOfAllCat + minOfAllCat,),dtype=float)
 count = 0
 
+# pdb.set_trace()
 for n in range(len(filteredPatches)):
     for k in range(nNoiseTypes-len(skip_distortions)):
         finalDistortPatches[count*minOfAllCat:(count+1)*minOfAllCat, ...] = allDistortPatches[n][k]
@@ -314,23 +312,25 @@ for i in range(len(refImgs)):
     randRefIndices = np.random.permutation(len(allRefPatches[i]))
     randRefIndices = randRefIndices[:float(minOfAllCat)/len(refImgs)]
     for j in range(len(randRefIndices)):
-        finalDistortPatches[count*minOfAllCat+refPatchCount] = np.transpose(allRefPatches[i][randRefIndices[j]],(2,0,1))
+        temp = allRefPatches[i][randRefIndices[j]]
+        temp2 = temp[...,None]
+        finalDistortPatches[count*minOfAllCat+refPatchCount] = np.transpose(temp2,(2,0,1))
         finalDistortLabels[count*minOfAllCat+refPatchCount] = 9.
         refPatchCount += 1
 
 # finalDistortLabels = np_utils.to_categorical(finalDistortLabels,nb_classes=noiseLevels)
 
-pdb.set_trace()
+# pdb.set_trace()
 
 if mode == "train":
-    with h5py.File("./hdf5Files_train/QualityRegressMOS_data_March31" +'.h5', 'w') as hf:
+    with h5py.File(hdfSavePath + "hdf5Files_train/QualityRegressMOS_data_March31" +'.h5', 'w') as hf:
         hf.create_dataset('data', data=finalDistortPatches)
         hf.create_dataset('labels', data=finalDistortLabels)
 elif mode == "val":
-    with h5py.File("./hdf5Files_val/QualityRegressMOS_data_March31" +'.h5', 'w') as hf:
+    with h5py.File(hdfSavePath + "hdf5Files_val/QualityRegressMOS_data_March31" +'.h5', 'w') as hf:
         hf.create_dataset('data', data=finalDistortPatches)
         hf.create_dataset('labels', data=finalDistortLabels)
 else:
-    with h5py.File("./hdf5Files_test/QualityRegressMOS_data_March31" +'.h5', 'w') as hf:
+    with h5py.File(hdfSavePath + "hdf5Files_test/QualityRegressMOS_data_March31" +'.h5', 'w') as hf:
         hf.create_dataset('data', data=finalDistortPatches)
         hf.create_dataset('labels', data=finalDistortLabels)

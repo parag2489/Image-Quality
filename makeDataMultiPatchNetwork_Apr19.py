@@ -12,13 +12,16 @@ import glob
 from keras.utils import np_utils
 import pandas as pd
 
-from keras.models import Sequential
-from keras.layers.core import Dense, Dropout, Activation, Flatten, Reshape
+from keras.models import Sequential, Graph
+from keras.layers.core import Dense, Dropout, Activation, Flatten, Reshape, Lambda
 from keras.layers.convolutional import Convolution1D, Convolution2D, MaxPooling2D, ZeroPadding2D
 from keras.optimizers import SGD
 from keras.layers.core import Merge
 from keras.regularizers import l2
 from keras import backend as K
+
+def min_pool_inp(x):
+    return -x
 
 def ismember(A, B):
     return np.any([np.sum(A == b) for b in B])
@@ -48,7 +51,7 @@ def preprocess_channel(channel, h):
 def preprocess_image(img, h):
     img = np.float32(img)
     img = img/255.
-    img = cv2.cvtColor(img,code=cv2.COLOR_BGR2Gray)
+    img = cv2.cvtColor(img,code=cv2.COLOR_BGR2GRAY)
     structImg = preprocess_channel(img, h)
     # structImg = np.empty_like(img)
     # structImg[:,:,0] = preprocess_channel(img[:,:,0],h)
@@ -60,10 +63,11 @@ def preprocess_image(img, h):
     return structImg
 
 mySeed = sys.argv[1]
-np.random.seed(mySeed)
+np.random.seed(int(float(mySeed)))
 
 allImgsPath = "/media/ASUAD\pchandak/Seagate Expansion Drive/TID2013/"
-hdfSavePath = "/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_HDF5Files_Apr20/"
+hdfSavePath = "/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_mulitPatchBackup_Apr23/imageQuality_HDF5Files_Apr20/"
+weightSavePath = "/media/AccessParag/Code/weights_MOSRegress/"
 imgRows = 384
 imgCols = 512
 imgChannels = 3
@@ -76,29 +80,28 @@ initialization = "he_normal"
 nb_output = 1
 doWeightLoadSaveTest = False
 patchOverlap = 0.5
-denseLayerSize = 600
+denseLayerSize = 800
 
 allImgs = glob.glob(allImgsPath+"*.bmp")
 splitF = [f.split("/")[-1] for f in allImgs]
 allRefImgs = [f for f in splitF if "_" not in f]
 
-# generate train, test and val indices
-
-ind = np.random.permutation(len(allRefImgs))
-
 mode = sys.argv[2]
 
+# generate train, test and val indices
+splitIndex = sys.argv[3]
+allRandomIndices = sio.loadmat('./randomIndices.mat')
+allRandomIndices = allRandomIndices['ind']
+ind = allRandomIndices[int(splitIndex),:]
 
 h = matlab_style_gauss2D(shape=(7,7),sigma=7./6.)
 
 if mode == "train":
-    refImgs = allRefImgs[ind[0:15]]
+    refImgs = [allRefImgs[i] for i in ind[0:15]]
 elif mode == "val":
-    refImgs = allRefImgs[ind[15:20]]
+    refImgs = [allRefImgs[i] for i in ind[15:20]]
 else:
-    refImgs = allRefImgs[ind[20:25]]
-
-splitF = [f.split("/")[-1] for f in fileList]
+    refImgs = [allRefImgs[i] for i in ind[20:25]]
 
 nNoiseTypes = 24
 noiseLevels = 5
@@ -131,7 +134,7 @@ for imgName in refImgs:
 # first make the small network which creates the 512-D representation
 
 model = Graph()
-model.add_input(name='input', input_shape=(channels, patchHeight, patchWidth))
+model.add_input(name='input', input_shape=(1, patchSize, patchSize))
 model.add_node(Convolution2D(50, 7, 7, init=initialization, activation='linear', border_mode='valid',
                                  input_shape=(1, 32, 32)), name='conv1', input='input')
 model.add_node(MaxPooling2D(pool_size=(26, 26)), name='max_pool', input='conv1')
@@ -163,7 +166,7 @@ if doWeightLoadSaveTest:
 # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 
 model.load_weights(weightSavePath + 'bestWeights_referenceCNN_bestCorr.h5')
-model.compile(loss='mae', optimizer=sgd)
+model.compile(loss={'output':'mae'}, optimizer=sgd)
 print("Compilation Finished")
 
 # get_layer_output = K.function([model.layers[0].input], [model.layers[-2].get_output(train=False)])
@@ -174,7 +177,7 @@ get_layer_output = K.function([model.inputs[i].input for i in model.input_order]
 
 hyperImages = np.empty((len(allImgScores),denseLayerSize,float(imgRows-patchSize)/float(patchSize*patchOverlap)+1,float(imgCols-patchSize)/float(patchSize*patchOverlap)+1),dtype=float)
 labels = np.empty((len(allImgScores),),dtype=float)
-pdb.set_trace()
+# pdb.set_trace()
 
 for i in range(len(allImgNames)):
     print str(i) + "/" + str(len(allImgNames))
@@ -186,14 +189,17 @@ for i in range(len(allImgNames)):
     for patch_col in range(0,imgCols-patchSize+1,int(patchSize*patchOverlap)):  # 1/2 overlap
         rowCount = 0
         for patch_row in range(0,imgRows-patchSize+1,int(patchSize*patchOverlap)):  # 1/2 overlap
-            patch = np.empty((1,3,patchSize,patchSize))
-            patch[0,...] = np.transpose(img[patch_row:patch_row+patchSize,patch_col:patch_col+patchSize,:],(2,0,1))
-            hyperImages[i,:,rowCount,colCount] = get_layer_output([input_data_dict[i] for i in model.input_order])[0]  # get_layer_output([patch])[0]
+            if len(img.shape) == 3:
+                patch = np.transpose(img[patch_row:patch_row+patchSize,patch_col:patch_col+patchSize,...],(2,0,1))
+            else:
+                patch = np.empty((1,1,patchSize,patchSize))
+                patch[0,0,...] = img[patch_row:patch_row+patchSize,patch_col:patch_col+patchSize]
+            hyperImages[i,:,rowCount,colCount] = get_layer_output([patch])[0]  # get_layer_output([patch])[0]
             rowCount += 1
         colCount += 1
     labels[i] = allImgScores[i]
 
-pdb.set_trace()
+# pdb.set_trace()
 
 if mode == "train":
     with h5py.File(hdfSavePath + "hdf5Files_train/QualityEstmn_MultiPatchNetwork_data_Apr19" +'.h5', 'w') as hf:

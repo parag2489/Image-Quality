@@ -5,15 +5,15 @@ from skimage import measure
 import glob
 import cv2
 import h5py
-import os
+import os, sys
 import gc
 import pdb
 import glob
 import pandas as pd
 from keras.utils import np_utils
 
-from keras.models import Sequential
-from keras.layers.core import Dense, Dropout, Activation, Flatten, Reshape
+from keras.models import Sequential, Graph
+from keras.layers.core import Dense, Dropout, Activation, Flatten, Reshape, Lambda
 from keras.layers.convolutional import Convolution1D, Convolution2D, MaxPooling2D, ZeroPadding2D
 from keras.optimizers import SGD
 from keras.regularizers import l2
@@ -24,8 +24,8 @@ import time
 import logging
 from decimal import Decimal
 
-mySeed = sys.argv[1]
-np.random.seed(mySeed)
+def min_pool_inp(x):
+    return -x
 
 def linear_correlation_loss(y_true, y_pred):
     mean_y_true = K.mean(y_true)
@@ -44,7 +44,7 @@ def linear_correlation_loss(y_true, y_pred):
 
 def constructDNNModel():
     model = Graph()
-    model.add_input(name='input', input_shape=(imgChannels, patchSize, patchSize))
+    model.add_input(name='input', input_shape=(1, patchSize, patchSize))
     model.add_node(Convolution2D(50, 7, 7, init=initialization, activation='linear', border_mode='valid',
                                      input_shape=(1, 32, 32)), name='conv1', input='input')
     model.add_node(MaxPooling2D(pool_size=(26, 26)), name='max_pool', input='conv1')
@@ -78,10 +78,28 @@ def constructDNNModel():
     model.load_weights(weightSavePath + 'bestWeights_referenceCNN_bestCorr.h5')
     print("Best correlation weights loaded.")
     # adam = Adam(lr=learningRate, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
-    model.compile(loss=linear_correlation_loss, optimizer=sgd)
+    model.compile(loss={'output':'mae'}, optimizer=sgd)
     print("Compilation Finished")
     return model
 
+mySeed = sys.argv[1]
+np.random.seed(int(float(mySeed)))
+
+def setup_logger(logger_name, log_file, level=logging.INFO):
+    l = logging.getLogger(logger_name)
+    formatter = logging.Formatter('%(message)s')
+    fileHandler = logging.FileHandler(log_file, mode='a')
+    fileHandler.setFormatter(formatter)
+    streamHandler = logging.StreamHandler()
+    streamHandler.setFormatter(formatter)
+    l.setLevel(level)
+    l.addHandler(fileHandler)
+    l.addHandler(streamHandler)
+
+def printing(str):
+	#logIntoaFile = True
+	print str
+	logger1.info(str)
 
 def ismember(A, B):
     return np.any([np.sum(A == b) for b in B])
@@ -111,7 +129,7 @@ def preprocess_channel(channel, h):
 def preprocess_image(img, h):
     img = np.float32(img)
     img = img/255.
-    img = cv2.cvtColor(img,code=cv2.COLOR_BGR2Gray)
+    img = cv2.cvtColor(img,code=cv2.COLOR_BGR2GRAY)
     structImg = preprocess_channel(img, h)
     # structImg = np.empty_like(img)
     # structImg[:,:,0] = preprocess_channel(img[:,:,0],h)
@@ -126,30 +144,40 @@ def predictMOS(img):
     img = preprocess_image(img, h)
     predictedMOS = []
     for patch_col in range(0,imgCols-patchSize+1,int(patchSize*patchOverlap)):
-        rowCount = 0
         for patch_row in range(0,imgRows-patchSize+1,int(patchSize*patchOverlap)):
-            patch = np.empty((1,3,patchSize,patchSize))
-            patch[0,...] = np.transpose(img[patch_row:patch_row+patchSize,patch_col:patch_col+patchSize,:],(2,0,1))
-            predictedMOS.append(model.predict(patch,batch_size=1))
+            if len(img.shape) == 3:
+                patch = np.empty((1,3,patchSize,patchSize))
+            else:
+                patch = np.empty((1,1,patchSize,patchSize))
+            img2 = img[...,None]
+            patch[0,...] = np.transpose(img2[patch_row:patch_row+patchSize,patch_col:patch_col+patchSize,:],(2,0,1))
+            predictedMOS.append(np.ravel((model.predict({'input': patch},batch_size=1)).get('output')))
     return np.mean(predictedMOS)
-
-def printing(str):
-	#logIntoaFile = True
-	print str
-	logging.info(str)
 
 # trainImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_train/"
 # valImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_val/"
 # testImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_test/"
 allImgsPath = "/media/ASUAD\pchandak/Seagate Expansion Drive/TID2013/"
 weightSavePath 	= '/media/AccessParag/Code/weights_MOSRegress/'
-logger 	= '/media/AccessParag/Code/DNN_imageQuality_Estmn_patchMOSAvg.txt'
+logger1Name 	= '/media/AccessParag/Code/DNN_imageQuality_Estmn_Apr23_consolidatedResults.txt'
+logger2Name 	= '/media/AccessParag/Code/DNN_imageQuality_Estmn_finalResults.txt'
 
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-                    datefmt='%m-%d %H:%M',
-                    filename=logger,
-                    filemode='w')
+# logger1 = logging.basicConfig(level=logging.DEBUG,
+#                     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+#                     datefmt='%m-%d %H:%M',
+#                     filename=logger1Name,
+#                     filemode='a')
+#
+# logger2 = logging.basicConfig(level=logging.DEBUG,
+#                     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+#                     datefmt='%m-%d %H:%M',
+#                     filename=logger2Name,
+#                     filemode='a')
+
+setup_logger('log1',logger1Name)
+setup_logger('log2',logger2Name)
+logger1 = logging.getLogger('log1')
+logger2 = logging.getLogger('log2')
 
 imgRows = 384
 imgCols = 512
@@ -171,23 +199,23 @@ allImgs = glob.glob(allImgsPath+"*.bmp")
 splitF = [f.split("/")[-1] for f in allImgs]
 allRefImgs = [f for f in splitF if "_" not in f]
 
-# generate train, test and val indices
-
-ind = np.random.permutation(len(allRefImgs))
-
 mode = sys.argv[2]
 
+# generate train, test and val indices
+splitIndex = sys.argv[3]
+allRandomIndices = sio.loadmat('./randomIndices.mat')
+allRandomIndices = allRandomIndices['ind']
+ind = allRandomIndices[int(splitIndex),:]
 
 h = matlab_style_gauss2D(shape=(7,7),sigma=7./6.)
 
 if mode == "train":
-    refImgs = allRefImgs[ind[0:15]]
+    refImgs = [allRefImgs[i] for i in ind[0:15]]
 elif mode == "val":
-    refImgs = allRefImgs[ind[15:20]]
+    refImgs = [allRefImgs[i] for i in ind[15:20]]
 else:
-    refImgs = allRefImgs[ind[20:25]]
+    refImgs = [allRefImgs[i] for i in ind[20:25]]
 
-splitF = [f.split("/")[-1] for f in fileList]
 
 nNoiseTypes = 24
 noiseLevels = 5
@@ -216,15 +244,30 @@ for imgName in refImgs:
             allImgNames.append(tempImgName)
             allImgScores.append(tempImgScore)
 
-pdb.set_trace()
+# pdb.set_trace()
 predictedMOS = np.empty((len(allImgNames),),dtype=float)
 for i in range(len(allImgNames)):
     print "Image " + str(i) + "/" + str(len(allImgNames)) + " under processing"
     img = cv2.imread(allImgsPath + allImgNames[i])
     predictedMOS[i] = predictMOS(img)
 
-pdb.set_trace()
+# pdb.set_trace()
+
+logger2.info('------------------------------------- MOS estimation by patch-averaging started --------------------------------------')
+logger2.info('----------------------------------------------------------------------------------------------------------------------')
+logger2.info('')
+printing('------------------------------------- MOS estimation by patch-averaging started ---------------------------------------')
+printing('-----------------------------------------------------------------------------------------------------------------------')
+printing('')
 srocc = scipy.stats.spearmanr(predictedMOS, allImgScores)
 plcc =  scipy.stats.pearsonr(predictedMOS, allImgScores)
 t_str = '\nSpearman corr for ' + mode + ' set is ' + str(srocc[0]) + '\nPearson corr for ' + mode + ' set is '+ str(plcc[0]) + '\nMean absolute error for ' + mode + ' set is ' + str(np.mean(np.abs(predictedMOS-allImgScores)))
 printing(t_str)
+logger2.info(t_str)
+logger2.info('')
+logger2.info('------------------------------------- MOS estimation by patch-averaging finished --------------------------------------')
+logger2.info('-----------------------------------------------------------------------------------------------------------------------')
+printing('')
+printing('------------------------------------- MOS estimation by patch-averaging finished --------------------------------------')
+printing('-----------------------------------------------------------------------------------------------------------------------')
+
