@@ -24,10 +24,13 @@ from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras import backend as K
 from decimal import Decimal
 
+mySeed = sys.argv[1]
+np.random.seed(mySeed)
+
 doWeightLoadSaveTest = True
 patchHeight = 23
 patchWidth = 31
-channels = 600
+channels = 800
 
 learningRate = 0.005
 regularizer = 0.0005
@@ -53,21 +56,20 @@ logging.basicConfig(level=logging.DEBUG,
                     filename=logger,
                     filemode='w')
 
-class LossHistory(callbacks.Callback):
-    def on_train_begin(self, logs={}):
-        self.losses = []
-
-    def on_batch_end(self, batch, logs={}):
-        # pdb.set_trace()
-        # print ""
-        logging.info(" -- The loss of batch # " + str(batch) + "is " + str(logs.get('loss')))
-        if np.isnan(logs.get("loss")):
-            pdb.set_trace()
-        self.losses.append(logs.get('loss'))
+# class LossHistory(callbacks.Callback):
+#     def on_train_begin(self, logs={}):
+#         self.losses = []
+#
+#     def on_batch_end(self, batch, logs={}):
+#         # pdb.set_trace()
+#         # print ""
+#         logging.info(" -- The loss of batch # " + str(batch) + "is " + str(logs.get('loss')))
+#         if np.isnan(logs.get("loss")):
+#             pdb.set_trace()
+#         self.losses.append(logs.get('loss'))
 
 class myCallback(callbacks.Callback):
     def on_epoch_begin(self, epoch, logs={}):
-        logging.info("Epoch " + str(epoch) + ":")
         # pdb.set_trace()
         if epoch == 0:
             self.best_mean_corr = -np.inf
@@ -79,31 +81,31 @@ class myCallback(callbacks.Callback):
             # printing("The current learning rate is: " + str(learningRate))
     def on_epoch_end(self, epoch, logs={}):
         model.save_weights(weightSavePath + "bestWeights_qualityEstmn_smallNetwork_latestModel.h5",overwrite=True)
-        logging.info(" -- Epoch "+str(epoch)+" done, loss : "+ str(logs.get('loss')))
 
         predictedScoresVal = np.ravel(model.predict(valData,batch_size=batchSize))
         predictedScoresTest = np.ravel(model.predict(testData,batch_size=batchSize))
         sroccVal = scipy.stats.spearmanr(predictedScoresVal, valLabels)
         plccVal =  scipy.stats.pearsonr(predictedScoresVal, valLabels)
-        sroccTest = scipy.stats.spearmanr(predictedScoresTest, testLabels)
-        plccTest =  scipy.stats.pearsonr(predictedScoresTest, testLabels)
         t_str_val = '\nSpearman corr for validation set is ' + str(sroccVal[0]) + '\nPearson corr for validation set is '+ str(plccVal[0]) + '\nMean absolute error for validation set is ' + str(np.mean(np.abs(predictedScoresVal-valLabels)))
-        t_str_test = '\nSpearman corr for test set is ' + str(sroccTest[0]) + '\nPearson corr for test set is '+ str(plccTest[0]) + '\nMean absolute error for test set is ' + str(np.mean(np.abs(predictedScoresTest-testLabels)))
-        print t_str_val
-        print t_str_test
+        printing(t_str_val)
+
 
         mean_corr = sroccVal[0] + plccVal[0]
         if mean_corr > self.best_mean_corr:
             self.best_mean_corr = mean_corr
             model.save_weights(weightSavePath + "bestWeights_qualityEstmn_smallNetwork_bestCorr.h5",overwrite=True)
             printing("Best correlation loss model saved at Epoch " + str(epoch))
+            sroccTest = scipy.stats.spearmanr(predictedScoresTest, testLabels)
+            plccTest =  scipy.stats.pearsonr(predictedScoresTest, testLabels)
+            t_str_test = '\nSpearman corr for test set is ' + str(sroccTest[0]) + '\nPearson corr for test set is '+ str(plccTest[0]) + '\nMean absolute error for test set is ' + str(np.mean(np.abs(predictedScoresTest-testLabels)))
+            printing(t_str_test)
 
         self.metric.append(logs.get("val_loss"))
-        if epoch % 6 == 0:
+        if epoch % 10 == 0:
             model.optimizer.lr.set_value(round(Decimal(0.5*model.optimizer.lr.get_value()),8))
-            learningRate = model.optimizer.lr.get_value()
-            printing("")
-            printing("The current learning rate is: " + str(learningRate))
+            # learningRate = model.optimizer.lr.get_value()
+            # printing("")
+            # printing("The current learning rate is: " + str(learningRate))
         # if epoch > 0:
         #     # pdb.set_trace()
         #     metric_history = self.metric[-2:]
@@ -135,32 +137,6 @@ def printing(str):
 	print str
 	logging.info(str)
 
-def boolToStr(boolVal):
-	if boolVal:
-		return "Yes"
-	else:
-		return "No"
-
-def emailSender(mystr):
-    import smtplib
-    fromaddr = 'vijetha.gattupalli@gmail.com'
-    toaddrs  = 'vijetha.gattupalli@gmail.com'
-    SUBJECT = "From Python Program"
-    message = """\
-    From: %s
-    To: %s
-    Subject: %s
-
-    %s
-    """ % (fromaddr, ", ".join(toaddrs), SUBJECT, mystr)
-    username = 'vijetha.gattupalli@gmail.com'
-    password = 'Dreamsonfire!'
-    server = smtplib.SMTP('smtp.gmail.com:587')
-    server.starttls()
-    server.login(username,password)
-    server.sendmail(fromaddr, toaddrs, message)
-    server.quit()
-
 printing('Parameters that will be used')
 printing("---------------------------------------------------------------------------------")
 
@@ -175,11 +151,9 @@ printing("Regularizer         : "+str(regularizer))
 printing("Initialization      : "+initialization)
 printing("\n")
 printing("**Run Variables**")
-printing("Number of samples per file             : "+ str(numSamplesPerfile))
 printing("Total # of epochs                      : "+str(Numepochs))
 printing("# samples per batch                    : "+str(batchSize))
 printing("Validate After Epochs                  : "+str(validateAfterEpochs))
-printing("Total number of validation samples     : "+str(NumSamplesinValidation))
 printing("\n")
 printing("**Files Path**")
 printing("Trainig Files Path       : "+TrainFilesPath)
@@ -193,22 +167,21 @@ printing("----------------------------------------------------------------------
 model = Sequential()
 
 model.add(Activation('linear',input_shape=(channels,patchHeight,patchWidth)))  # 23 x 31
-model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 21 x 29
-model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 19 x 27
+model.add(Convolution2D(32, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 21 x 29
+model.add(Convolution2D(32, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 19 x 27
 model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 18 x 26
 #
 # # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 #
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
 model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 11 x 19
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
 model.add(MaxPooling2D(pool_size=(2,2)))  # 2 x 6
 #
 # ------------------------------------------------------------------------------------------------------------------------------------------------ #
@@ -220,9 +193,9 @@ model.add(MaxPooling2D(pool_size=(2,2)))  # 2 x 6
 model.add(Flatten())
 # model.add(Reshape(1))
 # model.add(Dropout(0.25))
-model.add(Dense(2048, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
+model.add(Dense(800, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
 model.add(Dropout(0.5))
-model.add(Dense(2048, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
+model.add(Dense(800, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
 model.add(Dropout(0.5))
 model.add(Dense(nb_output, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "linear"))
 
