@@ -42,6 +42,10 @@ def preprocess_image(img, h):
     img = np.float32(img)
     img = img/255.
     img = cv2.cvtColor(img,code=cv2.COLOR_BGR2Gray)
+    # structImg = np.empty_like(img)
+    # structImg[:,:,0] = preprocess_channel(img[:,:,0],h)
+    # structImg[:,:,1] = preprocess_channel(img[:,:,1],h)
+    # structImg[:,:,2] = preprocess_channel(img[:,:,2],h)
     structImg = preprocess_channel(img, h)
     # cv2.imshow("imgOriginal",img)
     # cv2.imshow("imgProcessed",structImg)
@@ -158,25 +162,14 @@ for i in range(0, len(refImgs)):
         print "k = " + str(k) +", " + str(len(finalDistPatches[k]))
     # pdb.set_trace()
     refImgName = refImgs[i]
-    if mode == "train":
-        refImg = cv2.imread(trainImgsPath + refImgName)
-    elif mode == "val":
-        refImg = cv2.imread(valImgsPath + refImgName)
-    else:
-        refImg = cv2.imread(testImgsPath + refImgName)
-
+    refImg = cv2.imread(allImgsPath + refImgName)
     refImg = preprocess_image(refImg,h)
 
     distImgNames = distImgs[i]
     distImgLabels = distLabels[i]
     for imgName, imgLabel in zip(distImgNames, distImgLabels):
         patchMosScore = mos_scores[np.where(imgName.lower() == mos_names)[0][0]]
-        if mode == "train":
-            distImg = cv2.imread(trainImgsPath + imgName)
-        elif mode == "val":
-            distImg = cv2.imread(valImgsPath + imgName)
-        else:
-            distImg = cv2.imread(testImgsPath + imgName)
+        distImg = cv2.imread(allImgsPath + imgName)
 
         distImg = preprocess_image(distImg,h)
         for patch_col in range(0,imgCols-patchSize+1,int(patchSize/overlap)):  # 1/4 overlap

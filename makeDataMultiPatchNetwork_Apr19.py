@@ -48,11 +48,12 @@ def preprocess_channel(channel, h):
 def preprocess_image(img, h):
     img = np.float32(img)
     img = img/255.
-    # img = cv2.cvtColor(img,code=cv2.COLOR_BGR2Gray)
-    structImg = np.empty_like(img)
-    structImg[:,:,0] = preprocess_channel(img[:,:,0],h)
-    structImg[:,:,1] = preprocess_channel(img[:,:,1],h)
-    structImg[:,:,2] = preprocess_channel(img[:,:,2],h)
+    img = cv2.cvtColor(img,code=cv2.COLOR_BGR2Gray)
+    structImg = preprocess_channel(img, h)
+    # structImg = np.empty_like(img)
+    # structImg[:,:,0] = preprocess_channel(img[:,:,0],h)
+    # structImg[:,:,1] = preprocess_channel(img[:,:,1],h)
+    # structImg[:,:,2] = preprocess_channel(img[:,:,2],h)
     # cv2.imshow("imgOriginal",img)
     # cv2.imshow("imgProcessed",structImg)
     # cv2.waitKey(0)
@@ -161,7 +162,7 @@ if doWeightLoadSaveTest:
 # print("Weights at Epoch 0 loaded")
 # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 
-model.load_weights('/media/AccessParag/Code/weights_MOSRegress/bestWeights_referenceCNN_bestCorr.h5')
+model.load_weights(weightSavePath + 'bestWeights_referenceCNN_bestCorr.h5')
 model.compile(loss='mae', optimizer=sgd)
 print("Compilation Finished")
 
@@ -178,12 +179,7 @@ pdb.set_trace()
 for i in range(len(allImgNames)):
     print str(i) + "/" + str(len(allImgNames))
     imgName = allImgNames[i]
-    if mode == "train":
-        img = cv2.imread(trainImgsPath + imgName)
-    elif mode == "val":
-        img = cv2.imread(valImgsPath + imgName)
-    else:
-        img = cv2.imread(testImgsPath + imgName)
+    img = cv2.imread(allImgsPath + imgName)
     img = preprocess_image(img, h)
     colCount = 0
 

@@ -1,5 +1,4 @@
 import numpy as np
-np.random.seed(1337)
 from scipy.signal import convolve2d
 import scipy.io as sio
 from skimage import measure
@@ -25,6 +24,8 @@ import time
 import logging
 from decimal import Decimal
 
+mySeed = sys.argv[1]
+np.random.seed(mySeed)
 
 def linear_correlation_loss(y_true, y_pred):
     mean_y_true = K.mean(y_true)
@@ -42,44 +43,24 @@ def linear_correlation_loss(y_true, y_pred):
     return loss
 
 def constructDNNModel():
-    model = Sequential()
+    model = Graph()
+    model.add_input(name='input', input_shape=(imgChannels, patchSize, patchSize))
+    model.add_node(Convolution2D(50, 7, 7, init=initialization, activation='linear', border_mode='valid',
+                                     input_shape=(1, 32, 32)), name='conv1', input='input')
+    model.add_node(MaxPooling2D(pool_size=(26, 26)), name='max_pool', input='conv1')
+    model.add_node(Flatten(), name='flat_max', input='max_pool')
+    model.add_node(layer=Lambda(min_pool_inp, output_shape=(50, 26, 26)), name='invert_val', input='conv1')
+    model.add_node(MaxPooling2D(pool_size=(26, 26)), name='min_pool', input='invert_val')
+    model.add_node(Flatten(), name='flat_min', input='min_pool')
 
-    model.add(Activation('linear',input_shape=(imgChannels,patchSize,patchSize)))  # 32
-    model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 30
-    model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 28
-    model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 26
-    model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 25
+    model.add_node(Dense(800, init=initialization, activation='relu'), name='dense1',
+                       inputs=['flat_max', 'flat_min'], merge_mode='concat')
 
-    # ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-    model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 23
-    model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 21
-    model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 19
-    model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 18
-
-    # ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-    model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 16
-    model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 14
-    model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 12
-    model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 11
-
-    # ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-    model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 9
-    model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 7
-    model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 5
-    model.add(MaxPooling2D(pool_size=(2,2)))  # 2
-
-    # ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-    model.add(Flatten())
-    # model.add(Dropout(0.25))
-    model.add(Dense(600, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
-    model.add(Dropout(0.5))
-    model.add(Dense(600, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
-    model.add(Dropout(0.5))
-    model.add(Dense(nb_output, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "linear"))
+    model.add_node(Dense(800, init=initialization, activation='relu'), name='dense2', input='dense1')
+    model.add_node(Dropout(0.5), name='dropout2', input='dense2')
+    model.add_node(Dense(1, activation='linear'), name='output', input='dropout2', create_output=True)
+    # print model.get_config()
+    print model.count_params()
     print("Built the model")
 
     # ------------------------------------------------------------------------------------------------------------------------------------------------ #
@@ -94,8 +75,8 @@ def constructDNNModel():
     # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 
     sgd = SGD(lr=learningRate, decay=1e-6, momentum=0.9, nesterov=True)
-    model.load_weights(weightSavePath + "bestWeights_regressMOS_lowKernels_bestCorr_copy_Apr23.h5")
-    print("Latest weights loaded.")
+    model.load_weights(weightSavePath + 'bestWeights_referenceCNN_bestCorr.h5')
+    print("Best correlation weights loaded.")
     # adam = Adam(lr=learningRate, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
     model.compile(loss=linear_correlation_loss, optimizer=sgd)
     print("Compilation Finished")
@@ -130,11 +111,12 @@ def preprocess_channel(channel, h):
 def preprocess_image(img, h):
     img = np.float32(img)
     img = img/255.
-    # img = cv2.cvtColor(img,code=cv2.COLOR_BGR2Gray)
-    structImg = np.empty_like(img)
-    structImg[:,:,0] = preprocess_channel(img[:,:,0],h)
-    structImg[:,:,1] = preprocess_channel(img[:,:,1],h)
-    structImg[:,:,2] = preprocess_channel(img[:,:,2],h)
+    img = cv2.cvtColor(img,code=cv2.COLOR_BGR2Gray)
+    structImg = preprocess_channel(img, h)
+    # structImg = np.empty_like(img)
+    # structImg[:,:,0] = preprocess_channel(img[:,:,0],h)
+    # structImg[:,:,1] = preprocess_channel(img[:,:,1],h)
+    # structImg[:,:,2] = preprocess_channel(img[:,:,2],h)
     # cv2.imshow("imgOriginal",img)
     # cv2.imshow("imgProcessed",structImg)
     # cv2.waitKey(0)
@@ -151,41 +133,62 @@ def predictMOS(img):
             predictedMOS.append(model.predict(patch,batch_size=1))
     return np.mean(predictedMOS)
 
+def printing(str):
+	#logIntoaFile = True
+	print str
+	logging.info(str)
 
-trainImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_train/"
-valImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_val/"
-testImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_test/"
+# trainImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_train/"
+# valImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_val/"
+# testImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_test/"
+allImgsPath = "/media/ASUAD\pchandak/Seagate Expansion Drive/TID2013/"
 weightSavePath 	= '/media/AccessParag/Code/weights_MOSRegress/'
+logger 	= '/media/AccessParag/Code/DNN_imageQuality_Estmn_patchMOSAvg.txt'
+
+logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+                    datefmt='%m-%d %H:%M',
+                    filename=logger,
+                    filemode='w')
 
 imgRows = 384
 imgCols = 512
 imgChannels = 3
 patchSize = 32
-skip_distortions = np.array([16, 17, 18])
+skip_distortions = np.array([2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])
+# skip_distortions = np.array([16, 17, 18])
 learningRate = 0.005
 regularizer = 0.0005
 initialization = "he_normal"
 nb_output = 1
 doWeightLoadSaveTest = False
 patchOverlap = 0.5
-denseLayerSize = 600
+denseLayerSize = 800
 
-mode = "val"
+model = constructDNNModel()
+
+allImgs = glob.glob(allImgsPath+"*.bmp")
+splitF = [f.split("/")[-1] for f in allImgs]
+allRefImgs = [f for f in splitF if "_" not in f]
+
+# generate train, test and val indices
+
+ind = np.random.permutation(len(allRefImgs))
+
+mode = sys.argv[2]
 
 
 h = matlab_style_gauss2D(shape=(7,7),sigma=7./6.)
 
-model = constructDNNModel()
-
 if mode == "train":
-    fileList = glob.glob(trainImgsPath+"*.bmp")
+    refImgs = allRefImgs[ind[0:15]]
 elif mode == "val":
-    fileList = glob.glob(valImgsPath+"*.bmp")
+    refImgs = allRefImgs[ind[15:20]]
 else:
-    fileList = glob.glob(testImgsPath + "*.bmp")
+    refImgs = allRefImgs[ind[20:25]]
 
 splitF = [f.split("/")[-1] for f in fileList]
-refImgs = [f for f in splitF if "_" not in f]
+
 nNoiseTypes = 24
 noiseLevels = 5
 
@@ -217,16 +220,11 @@ pdb.set_trace()
 predictedMOS = np.empty((len(allImgNames),),dtype=float)
 for i in range(len(allImgNames)):
     print "Image " + str(i) + "/" + str(len(allImgNames)) + " under processing"
-    if mode == "train":
-        img = cv2.imread(trainImgsPath + allImgNames[i])
-    elif mode == "val":
-        img = cv2.imread(valImgsPath + allImgNames[i])
-    else:
-        img = cv2.imread(testImgsPath + allImgNames[i])
+    img = cv2.imread(allImgsPath + allImgNames[i])
     predictedMOS[i] = predictMOS(img)
 
 pdb.set_trace()
 srocc = scipy.stats.spearmanr(predictedMOS, allImgScores)
 plcc =  scipy.stats.pearsonr(predictedMOS, allImgScores)
 t_str = '\nSpearman corr for ' + mode + ' set is ' + str(srocc[0]) + '\nPearson corr for ' + mode + ' set is '+ str(plcc[0]) + '\nMean absolute error for ' + mode + ' set is ' + str(np.mean(np.abs(predictedMOS-allImgScores)))
-print t_str
+printing(t_str)
