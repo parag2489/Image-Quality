@@ -1,37 +1,114 @@
-import numpy as np
-from scipy.signal import convolve2d
-import scipy.io as sio
-from skimage import measure
-import glob
-import cv2
-import h5py
-import os, sys
-import gc
 import pdb
-import glob
-from keras.utils import np_utils
-import pandas as pd
-
 from keras.models import Sequential, Graph
 from keras.layers.core import Dense, Dropout, Activation, Flatten, Reshape, Lambda
-from keras.layers.convolutional import Convolution1D, Convolution2D, MaxPooling2D, ZeroPadding2D
-from keras.optimizers import SGD
+from keras.layers.convolutional import Convolution1D, Convolution2D, MaxPooling2D
+# from keras.layers.normalization import BatchNormalization
+# from keras.layers.advanced_activations import LeakyReLU
+from keras.optimizers import SGD, RMSprop, Adam
 from keras.layers.core import Merge
-from keras.regularizers import l2
+from keras.regularizers import l2, activity_l2
+import sys
+import numpy as np
+import scipy
+import theano
+from keras.layers.convolutional import ZeroPadding2D
+# from scipy import io
 from keras import backend as K
+import h5py
+from keras.utils import np_utils
+import time
+import cv2
+from keras import callbacks
+from keras.callbacks import ModelCheckpoint, EarlyStopping
+from decimal import Decimal
+
+mySeed = sys.argv[1]
+np.random.seed(int(float(mySeed)))
+
+doWeightLoadSaveTest = True
+patchHeight = 32
+patchWidth = 32
+channels = 3
+
+learningRate = 0.005
+regularizer = 0.0005
+initialization = "he_normal"
+# leak = 1./3. # for PReLU()
+
+Numepochs 				= 75
+batchSize 	            = 50
+validateAfterEpochs 	= 1
+nb_output = 1
+
+TrainFilesPath 	= '/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_mulitPatchBackup_Apr23/imageQuality_HDF5Files_Apr20/hdf5Files_train/'
+ValFilesPath 	= '/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_mulitPatchBackup_Apr23/imageQuality_HDF5Files_Apr20/hdf5Files_val/'
+TestFilesPath = '/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_mulitPatchBackup_Apr23/imageQuality_HDF5Files_Apr20/hdf5Files_test/'
+# logger 			= '/media/AccessParag/Code/DNN_imageQuality_regression_Apr20_corrlnLoss_lowKernels.txt'
+weightSavePath 	= '/media/AccessParag/Code/weights_MOSRegress/'
+
+class myCallback(callbacks.Callback):
+    def on_epoch_begin(self, epoch, logs={}):
+        # pdb.set_trace()
+        if epoch == 0:
+            self.best_mean_corr = -np.inf
+            self.metric = []
+    def on_epoch_end(self, epoch, logs={}):
+        model.save_weights(weightSavePath + "bestWeights_referenceCNN_latestModel.h5",overwrite=True)
+        if modelIndex == 1:
+            predictedScoresVal = np.ravel((model.predict({'input': valData},batch_size=batchSize)).get('output'))
+        else:
+            predictedScoresVal = np.ravel(model.predict(valData,batch_size=batchSize))
+
+        sroccVal = scipy.stats.spearmanr(predictedScoresVal, valLabels)
+        plccVal =  scipy.stats.pearsonr(predictedScoresVal, valLabels)
+        t_str_val = '\nSpearman corr for validation set is ' + str(sroccVal[0]) + '\nPearson corr for validation set is '+ str(plccVal[0]) + '\nMean absolute error for validation set is ' + str(np.mean(np.abs(predictedScoresVal-valLabels))) + '\n'
+        print t_str_val
+
+
+        mean_corr = sroccVal[0] + plccVal[0]
+        if mean_corr > self.best_mean_corr:
+            self.best_mean_corr = mean_corr
+            model.save_weights(weightSavePath + "bestWeights_referenceCNN_bestCorr.h5",overwrite=True)
+            print("Best correlation model saved at Epoch " + str(epoch) + '\n')
+            if modelIndex == 1:
+                predictedScoresTest = np.ravel((model.predict({'input': testData},batch_size=batchSize)).get('output'))
+            else:
+                predictedScoresTest = np.ravel(model.predict(testData,batch_size=batchSize))
+            sroccTest = scipy.stats.spearmanr(predictedScoresTest, testLabels)
+            plccTest =  scipy.stats.pearsonr(predictedScoresTest, testLabels)
+            t_str_test = '\nSpearman corr for test set is ' + str(sroccTest[0]) + '\nPearson corr for test set is '+ str(plccTest[0]) + '\nMean absolute error for test set is ' + str(np.mean(np.abs(predictedScoresTest-testLabels))) + '\n'
+            print t_str_test
+
+        self.metric.append(logs.get("val_loss"))
+        if epoch % 10 == 0 and epoch != 0:
+            model.optimizer.lr.set_value(round(Decimal(0.5*model.optimizer.lr.get_value()),8))
+            learningRate = model.optimizer.lr.get_value()
+            # print("")
+            print("The current learning rate is: " + str(learningRate) + '\n')
 
 def min_pool_inp(x):
     return -x
 
-def ismember(A, B):
-    return np.any([np.sum(A == b) for b in B])
+def linear_correlation_loss(y_true, y_pred):
+    mean_y_true = K.mean(y_true)
+    mean_y_pred = K.mean(y_pred)
+    std_y_true = K.std(y_true)+1e-6
+    std_y_pred = K.std(y_pred)+1e-6
+    nSamples = K.shape(y_true)[0]
+    firstTerm = (y_true - mean_y_true)/std_y_true
+    secondTerm = (y_pred - mean_y_pred)/std_y_pred
+    pearsonCorr = K.sum(firstTerm*secondTerm)/(nSamples-1)
+    pearsonCorr = K.clip(pearsonCorr,-1.,1.)
+    maeLoss = K.mean(K.abs(y_true-y_pred))
+    # loss  = 1./(0.1+K.exp(-0.5*K.log(maeLoss+(1-pearsonCorr))))
+    loss = (1./(0.1+K.exp(-0.5*K.log(maeLoss))))*(2-pearsonCorr)
+    return loss
 
 def constructDNNModel(modelIndex):
-    # first make the small network which creates the representation
     model = []
-    if modelIndex == 1:
+    if modelIndex == 1: # CVPR'14 CNN
         model = Graph()
-        model.add_input(name='input', input_shape=(imgChannels, patchSize, patchSize))
+        model.add_input(name='input', input_shape=(channels, patchHeight, patchWidth))
         model.add_node(Convolution2D(50, 7, 7, init=initialization, activation='linear', border_mode='valid',
                                          input_shape=(1, 32, 32)), name='conv1', input='input')
         model.add_node(MaxPooling2D(pool_size=(26, 26)), name='max_pool', input='conv1')
@@ -47,29 +124,17 @@ def constructDNNModel(modelIndex):
         model.add_node(Dropout(0.5), name='dropout2', input='dense2')
         model.add_node(Dense(1, activation='linear'), name='output', input='dropout2', create_output=True)
         # print model.get_config()
-        print model.count_params()
-        sgd = SGD(lr=learningRate, momentum=0.9, decay=0.0, Nesterov=True)
-        print("Built the model")
+        print("Model params = " + str(model.count_params()))
+        sgd = SGD(lr=learningRate, momentum=0.9, decay=1e-6, Nesterov=True)
+        model.compile(loss={'output':'mae'},optimizer=sgd)
 
-        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-        if doWeightLoadSaveTest:
-            # pdb.set_trace()
-            model.save_weights(weightSavePath + 'weightsLoadSaveTest.h5', overwrite=True)
-            model.load_weights(weightSavePath + 'weightsLoadSaveTest.h5')
-            print("Weight load/save test passed...")
-        # model.load_weights('/media/AccessParag/Code/weights/bestWeightsAtEpoch_000.h5')
-        # print("Weights at Epoch 0 loaded")
-        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-        model.load_weights(weightSavePath + 'bestWeights_referenceCNN_valLoss.h5')
-        print "Best val loss weights loaded."
-        model.compile(loss={'output':'mae'}, optimizer=sgd)
-        print("Compilation Finished")
+        print 'Finsihed compiling the model. No error in model construction'
+        #
+        print '......Starting training .........\n\n'
     elif modelIndex == 2:  # train_imageQuality_regressMOS_loweKernels.py
         model = Sequential()
 
-        model.add(Activation('linear',input_shape=(imgChannels,patchSize,patchSize)))  # 32
+        model.add(Activation('linear',input_shape=(channels,patchHeight,patchWidth)))  # 32
         model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 30
         model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 28
         model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 26
@@ -119,14 +184,13 @@ def constructDNNModel(modelIndex):
         # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 
         sgd = SGD(lr=learningRate, decay=1e-6, momentum=0.9, nesterov=True)
-        model.load_weights(weightSavePath + 'bestWeights_referenceCNN_valLoss.h5')
-        print "Best val loss weights loaded."
+        # adam = Adam(lr=learningRate, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
         model.compile(loss=linear_correlation_loss, optimizer=sgd)
         print("Compilation Finished")
     elif modelIndex == 3:  # train_imageQuality_regressMOS_loweKernels.py
         model = Sequential()
 
-        model.add(Activation('linear',input_shape=(imgChannels,patchSize,patchSize)))  # 32
+        model.add(Activation('linear',input_shape=(channels,patchHeight,patchWidth)))  # 32
         model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 30
         model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 28
         model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 26
@@ -171,182 +235,64 @@ def constructDNNModel(modelIndex):
             model.save_weights(weightSavePath + 'weightsLoadSaveTest.h5', overwrite=True)
             model.load_weights(weightSavePath + 'weightsLoadSaveTest.h5')
             print("Weight load/save test passed...")
-        # model.load_weights('/media/AccessParag/Code/weights/bestWeightsAtEpoch_000.h5')
-        # print("Weights at Epoch 0 loaded")
         # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 
         sgd = SGD(lr=learningRate, decay=1e-6, momentum=0.9, nesterov=True)
-        model.load_weights(weightSavePath + 'bestWeights_referenceCNN_valLoss.h5')
-        print "Best val loss weights loaded."
         model.compile(loss=linear_correlation_loss, optimizer=sgd)
         print("Compilation Finished")
     return model
 
-def linear_correlation_loss(y_true, y_pred):
-    mean_y_true = K.mean(y_true)
-    mean_y_pred = K.mean(y_pred)
-    std_y_true = K.std(y_true)+1e-6
-    std_y_pred = K.std(y_pred)+1e-6
-    nSamples = K.shape(y_true)[0]
-    firstTerm = (y_true - mean_y_true)/std_y_true
-    secondTerm = (y_pred - mean_y_pred)/std_y_pred
-    pearsonCorr = K.sum(firstTerm*secondTerm)/(nSamples-1)
-    pearsonCorr = K.clip(pearsonCorr,-1.,1.)
-    maeLoss = K.mean(K.abs(y_true-y_pred))
-    # loss  = 1./(0.1+K.exp(-0.5*K.log(maeLoss+(1-pearsonCorr))))
-    loss = (1./(0.1+K.exp(-0.5*K.log(maeLoss))))*(2-pearsonCorr)
-    return loss
+print('Parameters that will be used')
+print("---------------------------------------------------------------------------------")
 
-def matlab_style_gauss2D(shape=(3,3),sigma=0.5):
-    """
-    2D gaussian mask - should give the same result as MATLAB's
-    fspecial('gaussian',[shape],[sigma])
-    Credit to: http://stackoverflow.com/a/17201686/1586200
-    """
-    m,n = [(ss-1.)/2. for ss in shape]
-    y,x = np.ogrid[-m:m+1,-n:n+1]
-    h = np.exp( -(x*x + y*y) / (2.*sigma*sigma) )
-    h[ h < np.finfo(h.dtype).eps*h.max() ] = 0
-    sum_h = h.sum()
-    if sum_h != 0:
-        h /= sum_h
-    return h
+print("**Image Sizes**")
+print("Image Height  : "+str(patchHeight))
+print("Image Width   : "+str(patchWidth))
+print("Image Channels: "+str(channels))
+print("\n")
+print("**Network Parameters**")
+print("Learning Rate       : "+str(learningRate))
+print("Regularizer         : "+str(regularizer))
+print("Initialization      : "+initialization)
+print("\n")
+print("**Run Variables**")
+print("Total # of epochs                      : "+str(Numepochs))
+print("# samples per batch                    : "+str(batchSize))
+print("Validate After Epochs                  : "+str(validateAfterEpochs))
+print("\n")
+print("**Files Path**")
+print("Trainig Files Path       : "+TrainFilesPath)
+print("Valid Files Path         : "+ValFilesPath)
+print("Weights Save Path        : "+weightSavePath)
+print("\n")
 
-def preprocess_channel(channel, h):
-    mu = convolve2d(channel, h, mode='same')
-    mu_sq = np.square(mu)
-    sigma = np.sqrt(np.abs(convolve2d(np.square(channel),h,mode='same') - mu_sq))
-    structChannel = np.divide((channel-mu),(sigma+(1./255.)))
-    return structChannel
+print("---------------------------------------------------------------------------------")
 
-def preprocess_image(img, h):
-    img = np.float32(img)
-    img = img/255.
-    # img = cv2.cvtColor(img,code=cv2.COLOR_BGR2Gray)
-    structImg = np.empty_like(img)
-    structImg[:,:,0] = preprocess_channel(img[:,:,0],h)
-    structImg[:,:,1] = preprocess_channel(img[:,:,1],h)
-    structImg[:,:,2] = preprocess_channel(img[:,:,2],h)
-    # cv2.imshow("imgOriginal",img)
-    # cv2.imshow("imgProcessed",structImg)
-    # cv2.waitKey(0)
-    return structImg
+cb = myCallback()
+terminateTraining = EarlyStopping(monitor='val_loss', patience=20, verbose=1, mode='auto')
+checkpointer = ModelCheckpoint(filepath = weightSavePath + 'bestWeights_referenceCNN_valLoss.h5', verbose=1, save_best_only=True)
 
-mySeed = sys.argv[1]
-np.random.seed(int(float(mySeed)))
 
-rootPath = "/media/AccessParag/Code/"
-allImgsPath = "/media/ASUAD\pchandak/Seagate Expansion Drive/TID2013/"
-hdfSavePath = "/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_mulitPatchBackup_Apr23/imageQuality_HDF5Files_Apr20/"
-weightSavePath = "/media/AccessParag/Code/weights_MOSRegress/"
-imgRows = 384
-imgCols = 512
-imgChannels = 3
-patchSize = 32
-# skip_distortions = np.array([2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])
-# skip_distortions = np.array([16, 17, 18])
-skip_distortions = np.array([])
-learningRate = 0.005
-regularizer = 0.0005
-initialization = "he_normal"
-nb_output = 1
-doWeightLoadSaveTest = False
-patchOverlap = 0.5
-denseLayerSize = 800
+# ------------------------------------------------------------------------------------------------------------------------------------------------ #
 
-allImgs = glob.glob(allImgsPath+"*.bmp")
-splitF = [f.split("/")[-1] for f in allImgs]
-allRefImgs = [f for f in splitF if "_" not in f]
+hdfFileTrain = h5py.File(TrainFilesPath + "QualityRegressMOS_data_March31.h5","r")
+trainData = hdfFileTrain["data"][:]
+trainLabels = hdfFileTrain["labels"][:]
 
-mode = sys.argv[2]
+hdfFileVal = h5py.File(ValFilesPath + "QualityRegressMOS_data_March31.h5","r")
+valData = hdfFileVal["data"][:]
+valLabels = hdfFileVal["labels"][:]
 
-# generate train, test and val indices
-splitIndex = sys.argv[3]
-allRandomIndices = sio.loadmat(rootPath + 'randomIndices.mat')
-allRandomIndices = allRandomIndices['ind']
-ind = allRandomIndices[int(splitIndex),:]
+hdfFileTest = h5py.File(TestFilesPath + "QualityRegressMOS_data_March31.h5","r")
+testData = hdfFileTest["data"][:]
+testLabels = hdfFileTest["labels"][:]
 
-h = matlab_style_gauss2D(shape=(7,7),sigma=7./6.)
-
-if mode == "train":
-    refImgs = [allRefImgs[i] for i in ind[0:15]]
-elif mode == "val":
-    refImgs = [allRefImgs[i] for i in ind[15:20]]
-else:
-    refImgs = [allRefImgs[i] for i in ind[20:25]]
-
-nNoiseTypes = 24
-noiseLevels = 5
-
-allImgNames = []
-allImgScores = []
-
-mos_scores = pd.read_csv(rootPath + 'mos_with_names.txt', sep=" ", header = None)
-mos_names = mos_scores.values[:,1]
-for i in range(len(mos_names)):
-    mos_names[i] = mos_names[i].lower()
-mos_scores = mos_scores.values[:,0]
-
-# Collecting the image names and their corresponding scores together
-
-for imgName in refImgs:
-    allImgNames.append(imgName)
-    allImgScores.append(9.)
-    for i in range(1,nNoiseTypes+1):
-        if ismember(i,skip_distortions):
-            continue
-        for j in range(1,noiseLevels+1):
-            tempImgName = imgName[0:3] + "_" + "{:0>2}".format(i) + "_" + str(j) + ".bmp"
-
-            tempImgScore = mos_scores[np.where(tempImgName.lower() == mos_names)[0][0]]
-            allImgNames.append(tempImgName)
-            allImgScores.append(tempImgScore)
-
-modelIndex = int(float(sys.argv[4]))
+modelIndex = int(float(sys.argv[2]))
 model = constructDNNModel(modelIndex)
 
-# get_layer_output = K.function([model.layers[0].input], [model.layers[-2].get_output(train=False)])
-get_layer_output = K.function([model.inputs[i].input for i in model.input_order],
-                                   [model.nodes['dense2'].get_output(train=False)])
-
-# Making the data for the multi-patch network:
-
-hyperImages = np.empty((len(allImgScores),denseLayerSize,float(imgRows-patchSize)/float(patchSize*patchOverlap)+1,float(imgCols-patchSize)/float(patchSize*patchOverlap)+1),dtype=float)
-labels = np.empty((len(allImgScores),),dtype=float)
-# pdb.set_trace()
-
-for i in range(len(allImgNames)):
-    # print str(i) + "/" + str(len(allImgNames))
-    imgName = allImgNames[i]
-    img = cv2.imread(allImgsPath + imgName)
-    img = preprocess_image(img, h)
-    colCount = 0
-
-    for patch_col in range(0,imgCols-patchSize+1,int(patchSize*patchOverlap)):  # 1/2 overlap
-        rowCount = 0
-        for patch_row in range(0,imgRows-patchSize+1,int(patchSize*patchOverlap)):  # 1/2 overlap
-            if len(img.shape) == 3:
-                patch = np.empty((1,imgChannels,patchSize,patchSize))
-                patch[0,...] = np.transpose(img[patch_row:patch_row+patchSize,patch_col:patch_col+patchSize,:],(2,0,1))
-            else:
-                patch = np.empty((1,imgChannels,patchSize,patchSize))
-                patch[0,0,...] = img[patch_row:patch_row+patchSize,patch_col:patch_col+patchSize]
-            hyperImages[i,:,rowCount,colCount] = get_layer_output([patch])[0]  # get_layer_output([patch])[0]
-            rowCount += 1
-        colCount += 1
-    labels[i] = allImgScores[i]
-
-# pdb.set_trace()
-
-if mode == "train":
-    with h5py.File(hdfSavePath + "hdf5Files_train/QualityEstmn_MultiPatchNetwork_data_Apr19" +'.h5', 'w') as hf:
-        hf.create_dataset('data', data=hyperImages)
-        hf.create_dataset('labels', data=labels)
-elif mode == "val":
-    with h5py.File(hdfSavePath + "hdf5Files_val/QualityEstmn_MultiPatchNetwork_data_Apr19" +'.h5', 'w') as hf:
-        hf.create_dataset('data', data=hyperImages)
-        hf.create_dataset('labels', data=labels)
+if modelIndex == 1:
+    model.fit({'input':trainData, 'output':trainLabels}, batch_size=batchSize, nb_epoch=Numepochs, verbose=0, validation_data={'input':valData, 'output': valLabels},shuffle=True,callbacks=[checkpointer,cb,terminateTraining])
 else:
-    with h5py.File(hdfSavePath + "hdf5Files_test/QualityEstmn_MultiPatchNetwork_data_Apr19" +'.h5', 'w') as hf:
-        hf.create_dataset('data', data=hyperImages)
-        hf.create_dataset('labels', data=labels)
+    model.fit(trainData,trainLabels,batch_size=batchSize,nb_epoch=Numepochs,verbose=1,callbacks=[cb,checkpointer,terminateTraining],validation_data=(valData,valLabels),shuffle=True,show_accuracy=False)
+
+# pdb.set_trace()

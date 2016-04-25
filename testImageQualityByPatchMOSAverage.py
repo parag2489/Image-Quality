@@ -42,44 +42,158 @@ def linear_correlation_loss(y_true, y_pred):
     loss = (1./(0.1+K.exp(-0.5*K.log(maeLoss))))*(2-pearsonCorr)
     return loss
 
-def constructDNNModel():
-    model = Graph()
-    model.add_input(name='input', input_shape=(1, patchSize, patchSize))
-    model.add_node(Convolution2D(50, 7, 7, init=initialization, activation='linear', border_mode='valid',
-                                     input_shape=(1, 32, 32)), name='conv1', input='input')
-    model.add_node(MaxPooling2D(pool_size=(26, 26)), name='max_pool', input='conv1')
-    model.add_node(Flatten(), name='flat_max', input='max_pool')
-    model.add_node(layer=Lambda(min_pool_inp, output_shape=(50, 26, 26)), name='invert_val', input='conv1')
-    model.add_node(MaxPooling2D(pool_size=(26, 26)), name='min_pool', input='invert_val')
-    model.add_node(Flatten(), name='flat_min', input='min_pool')
+def constructDNNModel(modelIndex):
+    model = []
+    if modelIndex == 1:
+        model = Graph()
+        model.add_input(name='input', input_shape=(imgChannels, patchSize, patchSize))
+        model.add_node(Convolution2D(50, 7, 7, init=initialization, activation='linear', border_mode='valid',
+                                         input_shape=(1, 32, 32)), name='conv1', input='input')
+        model.add_node(MaxPooling2D(pool_size=(26, 26)), name='max_pool', input='conv1')
+        model.add_node(Flatten(), name='flat_max', input='max_pool')
+        model.add_node(layer=Lambda(min_pool_inp, output_shape=(50, 26, 26)), name='invert_val', input='conv1')
+        model.add_node(MaxPooling2D(pool_size=(26, 26)), name='min_pool', input='invert_val')
+        model.add_node(Flatten(), name='flat_min', input='min_pool')
 
-    model.add_node(Dense(800, init=initialization, activation='relu'), name='dense1',
-                       inputs=['flat_max', 'flat_min'], merge_mode='concat')
+        model.add_node(Dense(800, init=initialization, activation='relu'), name='dense1',
+                           inputs=['flat_max', 'flat_min'], merge_mode='concat')
 
-    model.add_node(Dense(800, init=initialization, activation='relu'), name='dense2', input='dense1')
-    model.add_node(Dropout(0.5), name='dropout2', input='dense2')
-    model.add_node(Dense(1, activation='linear'), name='output', input='dropout2', create_output=True)
-    # print model.get_config()
-    print model.count_params()
-    print("Built the model")
+        model.add_node(Dense(800, init=initialization, activation='relu'), name='dense2', input='dense1')
+        model.add_node(Dropout(0.5), name='dropout2', input='dense2')
+        model.add_node(Dense(1, activation='linear'), name='output', input='dropout2', create_output=True)
+        # print model.get_config()
+        print model.count_params()
+        print("Built the model")
 
-    # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 
-    if doWeightLoadSaveTest:
-        # pdb.set_trace()
-        model.save_weights(weightSavePath + 'weightsLoadSaveTest.h5', overwrite=True)
-        model.load_weights(weightSavePath + 'weightsLoadSaveTest.h5')
-        print("Weight load/save test passed...")
-    # model.load_weights('/media/AccessParag/Code/weights/bestWeightsAtEpoch_000.h5')
-    # printing("Weights at Epoch 0 loaded")
-    # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+        if doWeightLoadSaveTest:
+            # pdb.set_trace()
+            model.save_weights(weightSavePath + 'weightsLoadSaveTest.h5', overwrite=True)
+            model.load_weights(weightSavePath + 'weightsLoadSaveTest.h5')
+            print("Weight load/save test passed...")
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 
-    sgd = SGD(lr=learningRate, decay=1e-6, momentum=0.9, nesterov=True)
-    model.load_weights(weightSavePath + 'bestWeights_referenceCNN_bestCorr.h5')
-    print("Best correlation weights loaded.")
-    # adam = Adam(lr=learningRate, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
-    model.compile(loss={'output':'mae'}, optimizer=sgd)
-    print("Compilation Finished")
+        sgd = SGD(lr=learningRate, decay=1e-6, momentum=0.9, nesterov=True)
+        model.load_weights(weightSavePath + 'bestWeights_referenceCNN_valLoss.h5')
+        print "Best val loss weights loaded."
+        # adam = Adam(lr=learningRate, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
+        model.compile(loss={'output':'mae'}, optimizer=sgd)
+        print("Compilation Finished")
+        return model
+    elif modelIndex == 2:  # train_imageQuality_regressMOS_loweKernels.py
+        model = Sequential()
+
+        model.add(Activation('linear',input_shape=(imgChannels,patchSize,patchSize)))  # 32
+        model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 30
+        model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 28
+        model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 26
+        model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 25
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 23
+        model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 21
+        model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 19
+        model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 18
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 16
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 14
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 12
+        model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 11
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 9
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 7
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 5
+        model.add(MaxPooling2D(pool_size=(2,2)))  # 2
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Flatten())
+        # model.add(Dropout(0.25))
+        model.add(Dense(800, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
+        model.add(Dropout(0.5))
+        model.add(Dense(800, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
+        model.add(Dropout(0.5))
+        model.add(Dense(nb_output, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "linear"))
+        print("Built the model")
+
+# ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        if doWeightLoadSaveTest:
+            # pdb.set_trace()
+            model.save_weights(weightSavePath + 'weightsLoadSaveTest.h5', overwrite=True)
+            model.load_weights(weightSavePath + 'weightsLoadSaveTest.h5')
+            print("Weight load/save test passed...")
+        # model.load_weights('/media/AccessParag/Code/weights/bestWeightsAtEpoch_000.h5')
+        # print("Weights at Epoch 0 loaded")
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        sgd = SGD(lr=learningRate, decay=1e-6, momentum=0.9, nesterov=True)
+        model.load_weights(weightSavePath + 'bestWeights_referenceCNN_valLoss.h5')
+        print "Best val loss weights loaded."
+        model.compile(loss=linear_correlation_loss, optimizer=sgd)
+        print("Compilation Finished")
+
+    elif modelIndex == 3:  # train_imageQuality_regressMOS_loweKernels.py
+        model = Sequential()
+
+        model.add(Activation('linear',input_shape=(imgChannels,patchSize,patchSize)))  # 32
+        model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 30
+        model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 28
+        model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 26
+        model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 25
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 23
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 21
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 19
+        model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 18
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 16
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 14
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 12
+        model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 11
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 9
+        model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 7
+        model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 5
+        model.add(MaxPooling2D(pool_size=(2,2)))  # 2
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Flatten())
+        # model.add(Dropout(0.25))
+        model.add(Dense(800, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
+        model.add(Dropout(0.5))
+        model.add(Dense(800, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
+        model.add(Dropout(0.5))
+        model.add(Dense(nb_output, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "linear"))
+        print("Built the model")
+
+# ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        if doWeightLoadSaveTest:
+            # pdb.set_trace()
+            model.save_weights(weightSavePath + 'weightsLoadSaveTest.h5', overwrite=True)
+            model.load_weights(weightSavePath + 'weightsLoadSaveTest.h5')
+            print("Weight load/save test passed...")
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        sgd = SGD(lr=learningRate, decay=1e-6, momentum=0.9, nesterov=True)
+        model.load_weights(weightSavePath + 'bestWeights_referenceCNN_valLoss.h5')
+        print "Best val loss weights loaded."
+        model.compile(loss=linear_correlation_loss, optimizer=sgd)
+        print("Compilation Finished")
     return model
 
 mySeed = sys.argv[1]
@@ -90,16 +204,16 @@ def setup_logger(logger_name, log_file, level=logging.INFO):
     formatter = logging.Formatter('%(message)s')
     fileHandler = logging.FileHandler(log_file, mode='a')
     fileHandler.setFormatter(formatter)
-    streamHandler = logging.StreamHandler()
-    streamHandler.setFormatter(formatter)
+    # streamHandler = logging.StreamHandler()
+    # streamHandler.setFormatter(formatter)
     l.setLevel(level)
     l.addHandler(fileHandler)
-    l.addHandler(streamHandler)
+    # l.addHandler(streamHandler)
 
-def printing(str):
-	#logIntoaFile = True
-	print str
-	logger1.info(str)
+def printing(str,logger=-1):
+    print str
+    if logger != -1:
+        logger.info(str)
 
 def ismember(A, B):
     return np.any([np.sum(A == b) for b in B])
@@ -129,12 +243,11 @@ def preprocess_channel(channel, h):
 def preprocess_image(img, h):
     img = np.float32(img)
     img = img/255.
-    img = cv2.cvtColor(img,code=cv2.COLOR_BGR2GRAY)
-    structImg = preprocess_channel(img, h)
-    # structImg = np.empty_like(img)
-    # structImg[:,:,0] = preprocess_channel(img[:,:,0],h)
-    # structImg[:,:,1] = preprocess_channel(img[:,:,1],h)
-    # structImg[:,:,2] = preprocess_channel(img[:,:,2],h)
+    # img = cv2.cvtColor(img,code=cv2.COLOR_BGR2Gray)
+    structImg = np.empty_like(img)
+    structImg[:,:,0] = preprocess_channel(img[:,:,0],h)
+    structImg[:,:,1] = preprocess_channel(img[:,:,1],h)
+    structImg[:,:,2] = preprocess_channel(img[:,:,2],h)
     # cv2.imshow("imgOriginal",img)
     # cv2.imshow("imgProcessed",structImg)
     # cv2.waitKey(0)
@@ -147,32 +260,25 @@ def predictMOS(img):
         for patch_row in range(0,imgRows-patchSize+1,int(patchSize*patchOverlap)):
             if len(img.shape) == 3:
                 patch = np.empty((1,3,patchSize,patchSize))
+                patch[0,...] = np.transpose(img[patch_row:patch_row+patchSize,patch_col:patch_col+patchSize,:],(2,0,1))
             else:
                 patch = np.empty((1,1,patchSize,patchSize))
-            img2 = img[...,None]
-            patch[0,...] = np.transpose(img2[patch_row:patch_row+patchSize,patch_col:patch_col+patchSize,:],(2,0,1))
-            predictedMOS.append(np.ravel((model.predict({'input': patch},batch_size=1)).get('output')))
+                img2 = img[...,None]
+                patch[0,...] = np.transpose(img2[patch_row:patch_row+patchSize,patch_col:patch_col+patchSize,:],(2,0,1))
+            if modelIndex == 1:
+                predictedMOS.append(np.ravel((model.predict({'input': patch},batch_size=1)).get('output')))
+            else:
+                predictedMOS.append(np.ravel(model.predict(patch,batch_size=1)))
     return np.mean(predictedMOS)
 
 # trainImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_train/"
 # valImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_val/"
 # testImgsPath = "/home/ASUAD/pchandak/Desktop/allImgs_ref_distorted_test/"
+rootPath = "/media/AccessParag/Code/"
 allImgsPath = "/media/ASUAD\pchandak/Seagate Expansion Drive/TID2013/"
 weightSavePath 	= '/media/AccessParag/Code/weights_MOSRegress/'
 logger1Name 	= '/media/AccessParag/Code/DNN_imageQuality_Estmn_Apr23_consolidatedResults.txt'
 logger2Name 	= '/media/AccessParag/Code/DNN_imageQuality_Estmn_finalResults.txt'
-
-# logger1 = logging.basicConfig(level=logging.DEBUG,
-#                     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-#                     datefmt='%m-%d %H:%M',
-#                     filename=logger1Name,
-#                     filemode='a')
-#
-# logger2 = logging.basicConfig(level=logging.DEBUG,
-#                     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-#                     datefmt='%m-%d %H:%M',
-#                     filename=logger2Name,
-#                     filemode='a')
 
 setup_logger('log1',logger1Name)
 setup_logger('log2',logger2Name)
@@ -183,8 +289,9 @@ imgRows = 384
 imgCols = 512
 imgChannels = 3
 patchSize = 32
-skip_distortions = np.array([2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])
+# skip_distortions = np.array([2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])
 # skip_distortions = np.array([16, 17, 18])
+skip_distortions = np.array([])
 learningRate = 0.005
 regularizer = 0.0005
 initialization = "he_normal"
@@ -193,7 +300,8 @@ doWeightLoadSaveTest = False
 patchOverlap = 0.5
 denseLayerSize = 800
 
-model = constructDNNModel()
+modelIndex = int(float(sys.argv[4]))
+model = constructDNNModel(modelIndex)
 
 allImgs = glob.glob(allImgsPath+"*.bmp")
 splitF = [f.split("/")[-1] for f in allImgs]
@@ -203,7 +311,7 @@ mode = sys.argv[2]
 
 # generate train, test and val indices
 splitIndex = sys.argv[3]
-allRandomIndices = sio.loadmat('./randomIndices.mat')
+allRandomIndices = sio.loadmat(rootPath + 'randomIndices.mat')
 allRandomIndices = allRandomIndices['ind']
 ind = allRandomIndices[int(splitIndex),:]
 
@@ -223,7 +331,7 @@ noiseLevels = 5
 allImgNames = []
 allImgScores = []
 
-mos_scores = pd.read_csv('mos_with_names.txt', sep=" ", header = None)
+mos_scores = pd.read_csv(rootPath + 'mos_with_names.txt', sep=" ", header = None)
 mos_names = mos_scores.values[:,1]
 for i in range(len(mos_names)):
     mos_names[i] = mos_names[i].lower()
@@ -247,27 +355,20 @@ for imgName in refImgs:
 # pdb.set_trace()
 predictedMOS = np.empty((len(allImgNames),),dtype=float)
 for i in range(len(allImgNames)):
-    print "Image " + str(i) + "/" + str(len(allImgNames)) + " under processing"
+    # print "Image " + str(i) + "/" + str(len(allImgNames)) + " under processing"
     img = cv2.imread(allImgsPath + allImgNames[i])
     predictedMOS[i] = predictMOS(img)
 
 # pdb.set_trace()
 
-logger2.info('------------------------------------- MOS estimation by patch-averaging started --------------------------------------')
-logger2.info('----------------------------------------------------------------------------------------------------------------------')
-logger2.info('')
-printing('------------------------------------- MOS estimation by patch-averaging started ---------------------------------------')
-printing('-----------------------------------------------------------------------------------------------------------------------')
-printing('')
+printing('------------------------------------- MOS estimation by patch-averaging started ---------------------------------------',logger2)
+printing('-----------------------------------------------------------------------------------------------------------------------',logger2)
+printing('',logger2)
 srocc = scipy.stats.spearmanr(predictedMOS, allImgScores)
 plcc =  scipy.stats.pearsonr(predictedMOS, allImgScores)
 t_str = '\nSpearman corr for ' + mode + ' set is ' + str(srocc[0]) + '\nPearson corr for ' + mode + ' set is '+ str(plcc[0]) + '\nMean absolute error for ' + mode + ' set is ' + str(np.mean(np.abs(predictedMOS-allImgScores)))
-printing(t_str)
-logger2.info(t_str)
-logger2.info('')
-logger2.info('------------------------------------- MOS estimation by patch-averaging finished --------------------------------------')
-logger2.info('-----------------------------------------------------------------------------------------------------------------------')
-printing('')
-printing('------------------------------------- MOS estimation by patch-averaging finished --------------------------------------')
-printing('-----------------------------------------------------------------------------------------------------------------------')
+printing(t_str,logger2)
+printing('',logger2)
+printing('------------------------------------- MOS estimation by patch-averaging finished --------------------------------------',logger2)
+printing('-----------------------------------------------------------------------------------------------------------------------',logger2)
 

@@ -37,11 +37,11 @@ regularizer = 0.0005
 initialization = "he_normal"
 # leak = 1./3. # for PReLU()
 
-Numepochs 				= 200
+Numepochs 				= 120
 batchSize 	            = 20
 validateAfterEpochs 	= 1
-numSamplesPerfile 		= 1590
-NumSamplesinValidation 	= 530
+# numSamplesPerfile 		= 1590
+# NumSamplesinValidation 	= 530
 nb_output = 1
 
 TrainFilesPath 	= '/media/ASUAD\pchandak/Seagate Expansion Drive/imageQuality_mulitPatchBackup_Apr23/imageQuality_HDF5Files_Apr20/hdf5Files_train/'
@@ -51,38 +51,12 @@ logger1Name		= '/media/AccessParag/Code/DNN_imageQuality_Estmn_Apr23_consolidate
 logger2Name		= '/media/AccessParag/Code/DNN_imageQuality_Estmn_finalResults.txt'
 weightSavePath 	= '/media/AccessParag/Code/weights_QualityEstmn/'
 
-
-
-# logger1 = logging.basicConfig(level=logging.DEBUG,
-#                     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-#                     datefmt='%m-%d %H:%M',
-#                     filename=logger1Name,
-#                     filemode='w')
-#
-# logger2 = logging.basicConfig(level=logging.DEBUG,
-#                     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-#                     datefmt='%m-%d %H:%M',
-#                     filename=logger2Name,
-#                     filemode='w')
-
-# class LossHistory(callbacks.Callback):
-#     def on_train_begin(self, logs={}):
-#         self.losses = []
-#
-#     def on_batch_end(self, batch, logs={}):
-#         # pdb.set_trace()
-#         # print ""
-#         logging.info(" -- The loss of batch # " + str(batch) + "is " + str(logs.get('loss')))
-#         if np.isnan(logs.get("loss")):
-#             pdb.set_trace()
-#         self.losses.append(logs.get('loss'))
-
 class myCallback(callbacks.Callback):
     def on_epoch_begin(self, epoch, logs={}):
         # pdb.set_trace()
         if epoch == 0:
-            printing('------------------------------------- Multi-patch quality estimation started --------------------------------------')
-            printing('-------------------------------------------------------------------------------------------------------------------')
+            printing('------------------------------------- Multi-patch quality estimation started --------------------------------------',logger1)
+            printing('-------------------------------------------------------------------------------------------------------------------',logger1)
             self.best_mean_corr = -np.inf
             self.metric = []
     def on_epoch_end(self, epoch, logs={}):
@@ -93,25 +67,25 @@ class myCallback(callbacks.Callback):
         sroccVal = scipy.stats.spearmanr(predictedScoresVal, valLabels)
         plccVal =  scipy.stats.pearsonr(predictedScoresVal, valLabels)
         t_str_val = '\nSpearman corr for validation set is ' + str(sroccVal[0]) + '\nPearson corr for validation set is '+ str(plccVal[0]) + '\nMean absolute error for validation set is ' + str(np.mean(np.abs(predictedScoresVal-valLabels))) + '\n'
-        printing(t_str_val)
-        sroccTest = scipy.stats.spearmanr(predictedScoresTest, testLabels)
-        plccTest =  scipy.stats.pearsonr(predictedScoresTest, testLabels)
-        t_str_test = '\nSpearman corr for test set is ' + str(sroccTest[0]) + '\nPearson corr for test set is '+ str(plccTest[0]) + '\nMean absolute error for test set is ' + str(np.mean(np.abs(predictedScoresTest-testLabels))) + '\n'
-        printing(t_str_test)
+        printing(t_str_val,logger1)
+        # sroccTest = scipy.stats.spearmanr(predictedScoresTest, testLabels)
+        # plccTest =  scipy.stats.pearsonr(predictedScoresTest, testLabels)
+        # t_str_test = '\nSpearman corr for test set is ' + str(sroccTest[0]) + '\nPearson corr for test set is '+ str(plccTest[0]) + '\nMean absolute error for test set is ' + str(np.mean(np.abs(predictedScoresTest-testLabels))) + '\n'
+        # printing(t_str_test)
         if epoch == Numepochs:
-            printing('------------------------------------- Multi-patch quality estimation finished -------------------------------------')
-            printing('-------------------------------------------------------------------------------------------------------------------')
+            printing('------------------------------------- Multi-patch quality estimation finished -------------------------------------',logger1)
+            printing('-------------------------------------------------------------------------------------------------------------------',logger1)
 
 
         mean_corr = sroccVal[0] + plccVal[0]
         if mean_corr > self.best_mean_corr:
             self.best_mean_corr = mean_corr
             model.save_weights(weightSavePath + "bestWeights_qualityEstmn_smallNetwork_bestCorr.h5",overwrite=True)
-            printing("Best correlation loss model saved at Epoch " + str(epoch))
+            printing("Best correlation loss model saved at Epoch " + str(epoch),logger1)
 
         self.metric.append(logs.get("val_loss"))
-        if epoch % 10 == 0:
-            model.optimizer.lr.set_value(round(Decimal(0.5*model.optimizer.lr.get_value()),8))
+        if epoch % 5 == 0:
+            model.optimizer.lr.set_value(round(Decimal(0.7*model.optimizer.lr.get_value()),8))
             # learningRate = model.optimizer.lr.get_value()
             # printing("")
             # printing("The current learning rate is: " + str(learningRate))
@@ -125,6 +99,119 @@ class myCallback(callbacks.Callback):
         #         learningRate = model.optimizer.lr.get_value()
         #         printing("")
         #         printing("The current learning rate is: " + str(learningRate))
+def constructDNNModel(modelIndex):
+    model = []
+    if modelIndex == 1:
+        model = Sequential()
+    #
+        model.add(Activation('linear',input_shape=(channels,patchHeight,patchWidth)))  # 23 x 31
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 21 x 29
+        model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 19 x 27
+        model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 18 x 26
+        #
+        # # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+        #
+        model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 11 x 19
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 2 x 6
+        #
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+
+        model.add(Flatten())
+        # model.add(Reshape(1))
+        # model.add(Dropout(0.25))
+        model.add(Dense(1024, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
+        model.add(Dropout(0.5))
+        model.add(Dense(1024, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
+        model.add(Dropout(0.5))
+        model.add(Dense(nb_output, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "linear"))
+
+        printing("Built the model")
+        print("Model parameters = " + str(model.count_params()))
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        if doWeightLoadSaveTest:
+            # pdb.set_trace()
+            model.save_weights(weightSavePath + 'weightsLoadSaveTest.h5', overwrite=True)
+            model.load_weights(weightSavePath + 'weightsLoadSaveTest.h5')
+            printing("Weight load/save test passed...")
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        sgd = SGD(lr=learningRate, decay=1e-6, momentum=0.9, nesterov=True)
+        model.compile(loss=linear_correlation_loss, optimizer=sgd)
+        printing("Compilation Finished")
+    elif modelIndex == 2:
+        model = Sequential()
+
+        model.add(Activation('linear',input_shape=(channels,patchHeight,patchWidth)))  # 23 x 31
+        model.add(Convolution2D(32, 1, 1, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 21 x 29
+        model.add(Convolution2D(32, 2, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 19 x 27 22, 29
+        model.add(Convolution2D(32, 3, 4, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 17 x 25 20, 26
+        model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 16 x 24 19, 25
+        #
+        # # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+        #
+        model.add(Convolution2D(48, 1, 1, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 19, 25
+        model.add(Convolution2D(48, 2, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 18, 23
+        model.add(Convolution2D(48, 3, 4, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 16, 20
+        model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 9 x 17 15, 19
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Convolution2D(48, 1, 1, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(Convolution2D(48, 2, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(Convolution2D(48, 3, 4, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(MaxPooling2D(pool_size=(2,2), strides=(1,1)))  # 1 x 5 11, 13
+        #
+        # # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Convolution2D(48, 1, 1, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(Convolution2D(48, 2, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(Convolution2D(48, 3, 4, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(MaxPooling2D(pool_size=(2,2), strides=(1,1)))  # 1 x 5 7, 7
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Convolution2D(48, 1, 1, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(Convolution2D(48, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
+        model.add(MaxPooling2D(pool_size=(2,2), strides=(1,1)))  # 1 x 5 2, 2
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        model.add(Reshape((2 * 2 * 48,)))
+        model.add(Dense(400, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
+        model.add(Dropout(0.5))
+        model.add(Dense(400, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
+        model.add(Dropout(0.5))
+        model.add(Dense(nb_output, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "linear"))
+        printing("Built the model")
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        if doWeightLoadSaveTest:
+            # pdb.set_trace()
+            model.save_weights(weightSavePath + 'weightsLoadSaveTest.h5', overwrite=True)
+            model.load_weights(weightSavePath + 'weightsLoadSaveTest.h5')
+            printing("Weight load/save test passed...")
+
+        # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+        sgd = SGD(lr=learningRate, decay=1e-6, momentum=0.9, nesterov=True)
+        model.compile(loss=linear_correlation_loss, optimizer=sgd)
+        printing("Compilation Finished")
+    return  model
 
 def linear_correlation_loss(y_true, y_pred):
     mean_y_true = K.mean(y_true)
@@ -146,16 +233,16 @@ def setup_logger(logger_name, log_file, level=logging.INFO):
     formatter = logging.Formatter('%(message)s')
     fileHandler = logging.FileHandler(log_file, mode='a')
     fileHandler.setFormatter(formatter)
-    streamHandler = logging.StreamHandler()
-    streamHandler.setFormatter(formatter)
+    # streamHandler = logging.StreamHandler()
+    # streamHandler.setFormatter(formatter)
     l.setLevel(level)
     l.addHandler(fileHandler)
-    l.addHandler(streamHandler)
+    # l.addHandler(streamHandler)
 
-def printing(str):
-	#logIntoaFile = True
-	# print str
-	logger1.info(str)
+def printing(str,logger=-1):
+    print str
+    if logger != -1:
+        logger.info(str)
 
 setup_logger('log1',logger1Name)
 setup_logger('log2',logger2Name)
@@ -188,109 +275,13 @@ printing("\n")
 
 printing("---------------------------------------------------------------------------------")
 
-model = Sequential()
-#
-model.add(Activation('linear',input_shape=(channels,patchHeight,patchWidth)))  # 23 x 31
-model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 21 x 29
-model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 19 x 27
-# model.add(Convolution2D(64, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 18 x 26
-#
-# # ------------------------------------------------------------------------------------------------------------------------------------------------ #
-#
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 11 x 19
-
-# ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 4 x 12
-#
-# ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-model.add(Convolution2D(256, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 1 x 5
-
-
-model.add(Flatten())
-# model.add(Reshape(1))
-# model.add(Dropout(0.25))
-model.add(Dense(800, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
-model.add(Dropout(0.5))
-model.add(Dense(800, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
-model.add(Dropout(0.5))
-model.add(Dense(nb_output, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "linear"))
-
-# model.add(Convolution2D(32, 1, 1, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 23 x 31
-# model.add(Convolution2D(32, 2, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 22 x 29
-# model.add(Convolution2D(32, 3, 4, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 20 x 26
-# model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 19 x 25
-# #
-# # # ------------------------------------------------------------------------------------------------------------------------------------------------ #
-# #
-# model.add(Convolution2D(64, 1, 1, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 19 x 25
-# model.add(Convolution2D(64, 2, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 18 x 23
-# model.add(Convolution2D(64, 3, 4, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))  # 16 x 20
-# model.add(MaxPooling2D(pool_size=(2,2),strides=(1,1)))  # 15 x 19
-#
-# # ------------------------------------------------------------------------------------------------------------------------------------------------ #
-#
-# model.add(Convolution2D(64, 1, 1, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-# model.add(Convolution2D(64, 2, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-# model.add(Convolution2D(64, 3, 4, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-# model.add(MaxPooling2D(pool_size=(2,2), strides=(1,1)))  # 11 x 13
-# #
-# # # ------------------------------------------------------------------------------------------------------------------------------------------------ #
-#
-# model.add(Convolution2D(64, 1, 1, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-# model.add(Convolution2D(64, 2, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-# model.add(Convolution2D(64, 3, 4, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-# model.add(MaxPooling2D(pool_size=(2,2), strides=(1,1)))  # 7 x 7
-#
-# # ------------------------------------------------------------------------------------------------------------------------------------------------ #
-#
-# model.add(Convolution2D(128, 1, 1, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-# model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-# model.add(Convolution2D(128, 3, 3, border_mode='valid', trainable=True, init=initialization, W_regularizer=l2(regularizer), subsample=(1, 1), activation = "relu"))
-# model.add(MaxPooling2D(pool_size=(2,2), strides=(1,1)))  # 2 x 2
-#
-# model.add(Reshape((2 * 2 * 128,)))
-# # # model.add(Flatten())
-# # model.add(Dropout(0.25))
-# model.add(Dense(800, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
-# model.add(Dropout(0.5))
-# model.add(Dense(800, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "relu"))
-# model.add(Dropout(0.5))
-# model.add(Dense(nb_output, trainable=True, init=initialization, W_regularizer=l2(regularizer), activation = "linear"))
-printing("Built the model")
-print("Model parameters = " + str(model.count_params()))
-
-# ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-if doWeightLoadSaveTest:
-    # pdb.set_trace()
-    model.save_weights(weightSavePath + 'weightsLoadSaveTest.h5', overwrite=True)
-    model.load_weights(weightSavePath + 'weightsLoadSaveTest.h5')
-    printing("Weight load/save test passed...")
-# model.load_weights('/media/AccessParag/Code/weights/bestWeightsAtEpoch_000.h5')
-# printing("Weights at Epoch 0 loaded")
-# ------------------------------------------------------------------------------------------------------------------------------------------------ #
-
-sgd = SGD(lr=learningRate, decay=1e-6, momentum=0.9, nesterov=True)
-# adam = Adam(lr=learningRate, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
-model.compile(loss='mae', optimizer=sgd)
-printing("Compilation Finished")
-
-# ------------------------------------------------------------------------------------------------------------------------------------------------ #
+modelIndex = int(float(sys.argv[2]))
+model = constructDNNModel(modelIndex)
 
 # checkpointer = ModelCheckpoint(filepath = weightSavePath + "bestWeights_At_Epoch_{epoch:03d}.h5", monitor='val_loss', verbose=1, save_best_only=True, mode='auto')
 checkpointer = ModelCheckpoint(filepath = weightSavePath + "bestWeights_qualityEstmn_smallNetwork_bestLoss.h5", monitor='val_loss', verbose=1, save_best_only=True, mode='auto')
 cb = myCallback()
-terminateTraining = EarlyStopping(monitor='val_loss', patience=40, verbose=1, mode='auto')
+terminateTraining = EarlyStopping(monitor='val_loss', patience=30, verbose=1, mode='auto')
 
 hdfFileTrain = h5py.File(TrainFilesPath + "QualityEstmn_MultiPatchNetwork_data_Apr19.h5","r")
 trainData = hdfFileTrain["data"][:]
@@ -317,16 +308,17 @@ testLabels = hdfFileTest["labels"][:]
 model.fit(trainData,trainLabels,batch_size=batchSize,nb_epoch=Numepochs,verbose=0,callbacks=[cb,checkpointer,terminateTraining],validation_data=(valData,valLabels),shuffle=True,show_accuracy=False)
 # pdb.set_trace()
 
-model.load_weights(weightSavePath + "bestWeights_qualityEstmn_smallNetwork_bestCorr.h5")
-logger2.info('------------------------------------- Multi-patch quality estimation started ---------------------------------------')
-logger2.info('--------------------------------------------------------------------------------------------------------------------')
-logger2.info('')
+model.load_weights(weightSavePath + "bestWeights_qualityEstmn_smallNetwork_bestLoss.h5")
+print "Best val loss weights loaded."
+printing('------------------------------------- Multi-patch quality estimation started ---------------------------------------',logger2)
+printing('--------------------------------------------------------------------------------------------------------------------',logger2)
+printing('',logger2)
 predictedTestMOS = np.ravel(model.predict(testData,batch_size=batchSize))
 sroccTest = scipy.stats.spearmanr(predictedTestMOS, testLabels)
 plccTest =  scipy.stats.pearsonr(predictedTestMOS, testLabels)
 t_str_test = '\nSpearman corr for test set is ' + str(sroccTest[0]) + '\nPearson corr for test set is '+ str(plccTest[0]) + '\nMean absolute error for test set is ' + str(np.mean(np.abs(predictedTestMOS-testLabels))) + '\n'
-logger2.info(t_str_test)
-logger2.info('')
-logger2.info('------------------------------------- Multi-patch quality estimation finished --------------------------------------')
-logger2.info('--------------------------------------------------------------------------------------------------------------------')
+printing(t_str_test,logger2)
+printing('',logger2)
+printing('------------------------------------- Multi-patch quality estimation finished --------------------------------------',logger2)
+printing('--------------------------------------------------------------------------------------------------------------------',logger2)
 
